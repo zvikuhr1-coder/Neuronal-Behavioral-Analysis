@@ -1,0 +1,67 @@
+function extract_reference_image(data_path)
+% EXTRACT_REFERENCE_IMAGE Creates anatomical reference from first DCAM file
+%
+% Reads initial frames from the first recording to create reference images
+% showing the fiber array layout. These serve as anatomical templates for
+% ROI definition.
+%
+% INPUT:
+%   data_path - Path to folder containing DCAM files (named 202*.dcimg)
+%
+% OUTPUT FILES (saved in data_path/reference/):
+%   reference_image_downsampled.mat - 256x256 reference for ROI placement
+%   reference_image_full.mat - 512x512 high-resolution reference
+%   raw_frames.mat - First two raw frames from camera
+%
+% PROCESS:
+%   1. Find first DCAM file in folder
+%   2. Read first 2 frames (512x512 pixels each)
+%   3. Create downsampled version (256x256) for efficient ROI selection
+%   4. Save both versions for subsequent analysis steps
+
+% Create output directory for reference images
+reference_path = fullfile(data_path, 'reference');
+if ~isfolder(reference_path)
+    mkdir(reference_path);
+end
+
+% Navigate to data folder and find DCAM files
+cd(data_path);
+file_list = dir('202*.dcimg');
+
+% Validate that DCAM files exist
+if isempty(file_list)
+    error('No DCAM files found in %s. Files should be named 202*.dcimg', data_path);
+end
+
+% Define image dimensions (standard for Hamamatsu cameras)
+img_dims = [512 512];
+
+% Read first 2 frames from the first DCAM file
+first_file = fullfile(data_path, file_list(1).name);
+fprintf('  Reading first file: %s\n', file_list(1).name);
+
+[raw_frames] = read_dcam_file(first_file, 2, img_dims);
+
+% Extract individual frames for processing
+frame_1 = raw_frames(:, :, 1);
+frame_2 = raw_frames(:, :, 2);
+
+% Create downsampled version (256x256) for efficient ROI selection
+% This smaller version speeds up interactive ROI placement
+downsample_factor = 2;
+reference_downsampled = imresize(frame_1, 1/downsample_factor, 'box');
+
+% Create full resolution reference (average of first two frames)
+% Averaging reduces noise while preserving fiber positions
+reference_full = (double(frame_1) + double(frame_2)) / 2;
+
+% Save all reference images to the reference folder
+cd(reference_path);
+save('reference_image_downsampled.mat', 'reference_downsampled');
+save('reference_image_full.mat', 'reference_full');
+save('raw_frames.mat', 'frame_1', 'frame_2');
+
+fprintf('  Reference images saved to: %s\n', reference_path);
+
+end
