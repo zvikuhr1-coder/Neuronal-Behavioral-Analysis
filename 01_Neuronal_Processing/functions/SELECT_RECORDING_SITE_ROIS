@@ -1,0 +1,214 @@
+function recording_sites = select_recording_site_rois(reference_path)
+% SELECT_RECORDING_SITE_ROIS Interactive ROI positioning for 48 sites
+%
+% Creates and allows adjustment of circular ROIs for each recording site.
+% User manually adjusts 8 corner ROIs; intermediate ROIs are automatically
+% interpolated to create a regular grid aligned with the fiber array.
+%
+% INPUT:
+%   reference_path - Path to folder containing reference images
+%
+% OUTPUT:
+%   recording_sites - Structure array (48 elements) containing:
+%       .name - Brain region name (e.g., 'S1BF', 'BLA', 'CA1')
+%       .center - [x, y] coordinates of ROI center in pixels
+%       .radius - ROI radius in pixels
+%       .pixels - Binary mask indicating which pixels belong to this ROI
+%
+% WORKFLOW:
+%   1. Initialize 48 ROIs in default grid pattern
+%   2. Display reference image with 8 corner ROIs overlaid
+%   3. User adjusts corner positions and sizes
+%   4. Interpolate positions for intermediate ROIs (40 sites)
+%   5. Save all ROI definitions
+
+% Navigate to reference folder and load downsampled image
+cd(reference_path);
+load('reference_image_downsampled.mat', 'reference_downsampled');
+
+% Get image dimensions
+[rows, cols, ~] = size(reference_downsampled);
+
+% Define ROI grid parameters
+num_sites = 48;  % Total number of recording sites (4 rows × 12 columns)
+corner_sites = [1 12 13 24 25 36 37 48];  % Indices of manually adjustable corners
+initial_radius = 2;  % Initial radius in pixels for all ROIs
+
+% Brain region names for all 48 sites (4 rows × 12 columns)
+% Each position corresponds to a specific brain area or 'x' for unused
+region_names = {'S1BF','CPU','S1BF','x','GP','x','x','x','x','M1','Re','Re',...
+                'BLA','BLA','S1BF','CeM','RT','S1BF','VPM','CA3','CA3','CA1','DG','Re',...
+                'x','PRh','DLEnt','DIEnt','DIEnt','DIEnt','DG','Ment','DG','Post','x','RSD',...
+                'x','DLEnt','Ment','TEA','CEnt','CEnt','V1','Prs','Post','x','RSD','x'};
+
+% STEP 1: Initialize ROI structure with default grid positions
+% Create evenly-spaced grid as starting point
+k = 0;
+for i = 1:4  % 4 rows
+    for j = 1:12  % 12 columns
+        k = k + 1;
+        
+        % Calculate default center position with even spacing
+        % Formula creates grid with margins on all sides
+        recording_sites(k).center = [17*j + 34, 18*i + 79];
+        recording_sites(k).name = region_names{k};
+        recording_sites(k).radius = initial_radius;
+        recording_sites(k).pixels = [];  % Will be populated later
+    end
+end
+
+% STEP 2: Create initial pixel masks for each ROI
+% For each pixel in image, determine which ROI(s) it belongs to
+for x = 1:cols
+    for y = 1:rows
+        for i = 1:num_sites
+            % Calculate Euclidean distance from pixel to ROI center
+            distance = sqrt((x - recording_sites(i).center(1))^2 + ...
+                          (y - recording_sites(i).center(2))^2);
+            
+            % Include pixel in ROI if within radius
+            if distance <= recording_sites(i).radius
+                recording_sites(i).pixels = [recording_sites(i).pixels; [x, y]];
+            end
+        end
+    end
+end
+
+% STEP 3: Display reference image with corner ROIs for manual adjustment
+figure('Name', 'ROI Selection - Adjust 8 Corner Sites', ...
+       'Position', [100 100 1200 800]);
+h_image = imagesc(reference_downsampled, [0 30000]);
+colormap(gray);
+hold on;
+title('Adjust corner ROIs (red circles) to match fiber positions', ...
+      'FontSize', 14, 'FontWeight', 'bold');
+xlabel('X pixels');
+ylabel('Y pixels');
+axis image;
+
+% Draw interactive circles for the 8 corner sites only
+% These corners define the grid; other ROIs will be interpolated
+for i = 1:length(corner_sites)
+    site_idx = corner_sites(i);
+    
+    % Create draggable, resizable circle for this corner ROI
+    circle_rois(site_idx) = drawcircle('Center', recording_sites(site_idx).center, ...
+                                       'Radius', recording_sites(site_idx).radius, ...
+                                       'Color', 'r', ...
+                                       'LineWidth', 2);
+    
+    % Add brain region name label above circle
+    name_pos = [recording_sites(site_idx).center(1), ...
+                recording_sites(site_idx).center(2) - recording_sites(site_idx).radius - 3];
+    text(name_pos(1), name_pos(2), recording_sites(site_idx).name, ...
+         'VerticalAlignment', 'bottom', ...
+         'HorizontalAlignment', 'center', ...
+         'Color', 'white', ...
+         'FontSize', 10, ...
+         'FontWeight', 'bold');
+end
+
+% Add brightness adjustment slider for better visualization
+% Allows user to adjust contrast to see fibers more clearly
+uicontrol('Style', 'slider', ...
+          'Min', 0, 'Max', 50000, 'Value', 20000, ...
+          'Position', [20 20 300 20], ...
+          'Callback', @(src, ~) adjust_brightness(src, h_image, reference_downsampled));
+
+% Add instruction text
+uicontrol('Style', 'text', ...
+          'String', {'Drag circles to move • Drag edges to resize', ...
+                    'Adjust all 8 red corner circles', ...
+                    'Press Enter in Command Window when done'}, ...
+          'Position', [350 10 400 50], ...
+          'BackgroundColor', 'white', ...
+          'FontSize', 10);
+
+% STEP 4: Wait for user to finish adjusting corner ROIs
+disp('========================================');
+disp('ROI ADJUSTMENT INSTRUCTIONS:');
+disp('1. Drag red circles to move them');
+disp('2. Drag circle edges to resize them');
+disp('3. Adjust slider to change brightness');
+disp('4. Focus on corner circles (1,12,13,24,25,36,37,48)');
+disp('5. Press ENTER when done');
+disp('========================================');
+pause;  % Wait for user to press Enter
+
+% STEP 5: Update corner ROI parameters from user adjustments
+for i = 1:length(corner_sites)
+    site_idx = corner_sites(i);
+    
+    % Get updated position and radius from interactive circle
+    recording_sites(site_idx).center = circle_rois(site_idx).Center;
+    recording_sites(site_idx).radius = circle_rois(site_idx).Radius;
+    
+    % Create binary mask for this ROI
+    recording_sites(site_idx).pixels = createMask(circle_rois(site_idx), ...
+                                                  reference_downsampled);
+end
+
+% STEP 6: Interpolate intermediate ROIs between corners for each row
+% This creates a regular grid aligned with the adjusted corners
+fprintf('  Interpolating intermediate ROIs...\n');
+
+for row = 1:4
+    % Get corner indices for this row
+    start_idx = corner_sites(2 * row - 1);  % Left corner (1, 13, 25, 37)
+    end_idx = corner_sites(2 * row);        # Right corner (12, 24, 36, 48)
+    
+    % Get corner parameters
+    start_center = recording_sites(start_idx).center;
+    end_center = recording_sites(end_idx).center;
+    start_radius = recording_sites(start_idx).radius;
+    end_radius = recording_sites(end_idx).radius;
+    
+    % Interpolate positions for columns 2-11 (10 intermediate ROIs per row)
+    for col = 2:11
+        % Calculate interpolation factor (0 to 1 from left to right)
+        t = (col - 1) / 11;
+        
+        % Calculate site index in flattened array
+        site_idx = (row - 1) * 12 + col;
+        
+        % Linear interpolation of center position
+        new_center = (1 - t) * start_center + t * end_center;
+        
+        % Linear interpolation of radius
+        new_radius = (1 - t) * start_radius + t * end_radius;
+        
+        % Draw interpolated ROI on display (for visualization)
+        circle_rois(site_idx) = drawcircle('Center', new_center, ...
+                                           'Radius', new_radius, ...
+                                           'Color', 'cyan', ...
+                                           'LineWidth', 1);
+        
+        % Add label for interpolated ROI
+        name_pos = [new_center(1), new_center(2) - new_radius - 3];
+        text(name_pos(1), name_pos(2), region_names{site_idx}, ...
+             'VerticalAlignment', 'bottom', ...
+             'HorizontalAlignment', 'center', ...
+             'Color', 'yellow', ...
+             'FontSize', 8);
+        
+        % Store updated values in structure
+        recording_sites(site_idx).center = new_center;
+        recording_sites(site_idx).radius = new_radius;
+        
+        % Create binary pixel mask for this ROI
+        recording_sites(site_idx).pixels = createMask(circle_rois(site_idx), ...
+                                                      reference_downsampled);
+    end
+end
+
+% STEP 7: Save recording sites structure
+fprintf('  Saving recording sites to file...\n');
+save('recording_sites.mat', 'recording_sites');
+
+% Keep figure open briefly to show final result
+pause(2);
+close(gcf);
+
+fprintf('  ROI selection complete!\n');
+
+end
