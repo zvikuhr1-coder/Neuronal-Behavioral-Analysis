@@ -1,0 +1,21 @@
+function adjust_brightness(src, h_image, img)
+% ADJUST_BRIGHTNESS Callback for brightness slider during ROI selection
+%
+% Updates image display contrast based on slider value. Used during
+% interactive ROI definition to improve visibility of fiber positions.
+%
+% INPUT:
+%   src - Slider UI control object
+%   h_image - Handle to image object being displayed
+%   img - Original image data
+%
+% USAGE:
+%   This function is called automatically when the brightness slider moves.
+%   Adjusts caxis (color axis limits) to change display contrast without
+%   modifying the underlying image data.
+
+brightness = get(src, 'Value');  % Get current slider value
+set(h_image, 'CData', img);      % Refresh image data
+caxis([0 brightness]);           % Set color axis limits for contrast
+
+end
