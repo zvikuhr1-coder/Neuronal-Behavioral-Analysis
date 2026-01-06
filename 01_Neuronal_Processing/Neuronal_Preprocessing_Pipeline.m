@@ -287,54 +287,6 @@ fprintf('   brain_ROIs(1).name  %% Get name of first ROI\n');
 fprintf('   brain_ROIs(1).center  %% Get center coordinates\n\n');
 
 fprintf('=============================================================\n');
-
-%% EXAMPLE: QUICK DATA VISUALIZATION
-% =========================================================================
-% This section demonstrates how to load and visualize the processed data
-% =========================================================================
-
-fprintf('\nGenerating example visualization...\n');
-
-try
-    % Load the first trial's corrected time series
-    load(fullfile(behav_path, 'Matt_files', 'tc_all_brain_areas_CORRECTED1.mat'));
-    
-    % Load ROI information
-    load(fullfile(green_path, 'brain_ROIs.mat'));
-    
-    % Create a summary figure
-    figure('Name', 'Processing Pipeline Output - Trial 1', 'NumberTitle', 'off', ...
-           'Position', [100 100 1400 800]);
-    
-    % Plot time series for first 12 ROIs (first row of fiber array)
-    for i = 1:12
-        subplot(3, 4, i);
-        plot(tc_all_brain_areas_CORRECTED(i, :), 'LineWidth', 1.5);
-        title(sprintf('%s (ROI %d)', brain_ROIs(i).name, i), ...
-              'Interpreter', 'none', 'FontSize', 10, 'FontWeight', 'bold');
-        xlabel('Time (frames)', 'FontSize', 9);
-        ylabel('\DeltaF/F₀', 'FontSize', 9);
-        grid on;
-        axis tight;
-    end
-    
-    % Add overall title
-    sgtitle('Calcium Imaging Time Series - First Row of ROIs (Trial 1)', ...
-            'FontSize', 14, 'FontWeight', 'bold');
-    
-    fprintf('✓ Example visualization created\n');
-    
-catch ME
-    fprintf('Note: Could not create example visualization\n');
-    fprintf('Error: %s\n', ME.message);
-end
-
-fprintf('\n=============================================================\n');
-fprintf('Pipeline execution completed successfully!\n');
-fprintf('=============================================================\n');
-
-%% ADDITIONAL NOTES AND TROUBLESHOOTING
-% =========================================================================
 % 
 % DATA STRUCTURE DETAILS:
 % -----------------------
@@ -357,40 +309,6 @@ fprintf('=============================================================\n');
 %    - Dual wavelength: ~1 GB per trial
 %    - Ensure sufficient RAM for your number of trials
 %
-% TROUBLESHOOTING:
-% ---------------
-%
-% Problem: "Error creating green files"
-% Solution: 
-%   - Check that behav_path exists and contains .dcimg files
-%   - Ensure files start with '202' (year prefix)
-%   - Verify read permissions on the folder
-%
-% Problem: "Error defining ROIs - Cannot create mask"
-% Solution:
-%   - Make sure you drew the chamber rectangle properly
-%   - Try redrawing with larger area to include all fibers
-%   - Check that green_ds.mat was created in previous step
-%
-% Problem: "Out of memory" during trial processing
-% Solution:
-%   - Process fewer trials at a time
-%   - Close other applications to free RAM
-%   - Consider processing on a machine with more memory
-%   - Reduce the number of frames per trial if possible
-%
-% Problem: Time series look noisy or have drift
-% Solution:
-%   - Adjust smoothing window (currently 5 frames, line in create_matt_files3)
-%   - Consider additional detrending (commented out in create_matt_files3)
-%   - Check ROI placement - fibers should be well-centered in ROIs
-%   - Verify good signal quality in raw green reference images
-%
-% Problem: Purple/Blue channel assignment is wrong
-% Solution:
-%   - The code auto-detects which channel is brighter in frame 1
-%   - If consistently wrong, you may need to modify the detection logic
-%   - Check the control_purple_first variable in create_matt_files3
 %
 % PERFORMANCE OPTIMIZATION:
 % ------------------------
