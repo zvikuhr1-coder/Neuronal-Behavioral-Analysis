@@ -1,0 +1,212 @@
+function [num_trials] = extract_calcium_signals(reference_path, data_path, params)
+% EXTRACT_CALCIUM_SIGNALS Process all trials with hemodynamic correction
+%
+% Processes all DCAM files to extract calcium signals from each recording
+% site. Uses dual-wavelength imaging with purple (calcium-sensitive GCaMP)
+% and blue (calcium-insensitive hemodynamic reference) channels.
+%
+% INPUT:
+%   reference_path - Path to reference images and ROI definitions
+%   data_path - Path to raw DCAM files
+%   params - Structure with fields:
+%       .dual_wavelength - true for dual-wavelength correction (always true)
+%       .show_plots - true to display time series plots (false for GitHub)
+%
+% OUTPUT FILES (saved in data_path/processed/):
+%   For each trial N:
+%     trial_N_purple.mat - Purple (GCaMP) channel [48 sites × timepoints]
+%     trial_N_blue.mat - Blue (hemodynamic) channel [48 sites × timepoints]
+%     trial_N_corrected.mat - Corrected signal [48 sites × timepoints]
+%     trial_N_corrected_smoothed.mat - Final smoothed output
+%
+% SIGNAL PROCESSING PIPELINE:
+%   1. Read all frames from DCAM file
+%   2. Apply chamber mask (exclude pixels outside fiber array)
+%   3. Downsample frames from 512×512 to 256×256
+%   4. Separate alternating frames into purple/blue channels
+%   5. Extract mean intensity per ROI per timepoint
+%   6. Determine channel order (purple vs blue based on brightness)
+%   7. Normalize: ΔF/F = (F - F₀) / F₀  where F₀ = median baseline
+%   8. Correct: Signal = Blue - Purple (removes hemodynamic artifact)
+%   9. Smooth with 5-frame moving average filter
+
+% Navigate to data folder
+cd(data_path);
+
+% Create output directory for processed signals
+processed_path = fullfile(data_path, 'processed');
+if ~isfolder(processed_path)
+    mkdir(processed_path);
+end
+
+% Load ROI definitions and chamber mask from reference folder
+cd(reference_path);
+load('chamber_mask.mat', 'chamber_mask');
+load('recording_sites.mat', 'recording_sites');
+num_sites = length(recording_sites);
+
+fprintf('  Loaded %d recording sites\n', num_sites);
+
+% Find all DCAM files to process
+cd(data_path);
+file_list = dir('202*.dcimg');
+num_trials = length(file_list);
+
+if num_trials == 0
+    error('No DCAM files found in %s. Files should be named 202*.dcimg', data_path);
+end
+
+fprintf('  Found %d trials to process\n', num_trials);
+
+% Define image processing parameters
+img_dims = [512 512];  % Original camera resolution
+downsample_factor = 2;  % Reduce to 256×256 for faster processing
+img_dim_y = img_dims(1);
+img_dim_x = img_dims(2);
+img_dim_y_ds = ceil(img_dim_y / downsample_factor);  % 256
+img_dim_x_ds = ceil(img_dim_x / downsample_factor);  % 256
+
+%% MAIN TRIAL PROCESSING LOOP
+for trial = 1:num_trials
+    fprintf('  Processing trial %d/%d... ', trial, num_trials);
+    
+    % Calculate number of frames from file size
+    % File size formula specific to DCAM format
+    file_info = dir(fullfile(data_path, file_list(trial).name));
+    num_frames = ceil(2 * file_info.bytes * 9.53674e-7) - 1;
+    
+    % Read all frames from DCAM file
+    [raw_frames] = read_dcam_file(fullfile(data_path, file_list(trial).name), ...
+                                  num_frames, img_dims);
+    
+    %% DUAL-WAVELENGTH PROCESSING
+    % Frames alternate: purple, blue, purple, blue, ...
+    
+    num_half_frames = num_frames / 2;  % Each channel has half the frames
+    
+    % Initialize arrays for both channels (downsampled size)
+    frames_channel1 = zeros(img_dim_y_ds, img_dim_x_ds, num_half_frames);
+    frames_channel2 = zeros(img_dim_y_ds, img_dim_x_ds, num_half_frames);
+    
+    % Separate alternating frames into two channels
+    k = 0;
+    for frame_idx = 1:2:num_frames
+        k = k + 1;
+        
+        % Process odd frame (channel 1)
+        img_reshaped = reshape(raw_frames(:, :, frame_idx)', ...
+                              img_dim_y * img_dim_x, 1);
+        img_reshaped(chamber_mask) = nan;  % Mask pixels outside chamber
+        img = reshape(img_reshaped, img_dim_y, img_dim_x);
+        img = im2double(img);  % Convert to double precision
+        frames_channel1(:, :, k) = imresize(img, 1/downsample_factor, 'box');
+        
+        % Process even frame (channel 2)
+        img_reshaped2 = reshape(raw_frames(:, :, frame_idx+1)', ...
+                               img_dim_y * img_dim_x, 1);
+        img_reshaped2(chamber_mask) = nan;
+        img2 = reshape(img_reshaped2, img_dim_y, img_dim_x);
+        img2 = im2double(img2);
+        frames_channel2(:, :, k) = imresize(img2, 1/downsample_factor, 'box');
+    end
+    
+    %% EXTRACT MEAN INTENSITY PER ROI PER TIMEPOINT
+    % Average all pixels within each ROI for each timepoint
+    mean_values_ch1 = zeros(num_sites, num_half_frames);
+    mean_values_ch2 = zeros(num_sites, num_half_frames);
+    
+    for site = 1:num_sites
+        % Get pixel mask for this ROI
+        mask = recording_sites(site).pixels;
+        
+        for t = 1:num_half_frames
+            frame1 = frames_channel1(:, :, t);
+            frame2 = frames_channel2(:, :, t);
+            
+            % Calculate mean intensity within ROI (ignoring NaN pixels)
+            mean_values_ch1(site, t) = nanmean(frame1(mask));
+            mean_values_ch2(site, t) = nanmean(frame2(mask));
+        end
+    end
+    
+    %% DETERMINE CHANNEL ASSIGNMENT
+    % Purple (GCaMP) channel is typically brighter than blue in first frame
+    % due to baseline fluorescence
+    if nansum(frames_channel1(:,:,1), 'all') > nansum(frames_channel2(:,:,1), 'all')
+        purple_first = true;
+    else
+        purple_first = false;
+    end
+    
+    %% NORMALIZE SIGNALS: ΔF/F
+    % Normalize to baseline (median) to get fractional change
+    % Skip initial frames to avoid settling artifacts
+    
+    if trial == 1
+        baseline_start = 31;  % Skip first 30 frames for trial 1 (longer settling)
+    else
+        baseline_start = 11;  % Skip first 10 frames for subsequent trials
+    end
+    
+    % Calculate baseline (median of frames after settling period)
+    baseline_ch1 = median(mean_values_ch1(:, baseline_start:end), 2);
+    signal_ch1 = mean_values_ch1 ./ baseline_ch1;  % Normalize: F/F₀
+    
+    baseline_ch2 = median(mean_values_ch2(:, baseline_start:end), 2);
+    signal_ch2 = mean_values_ch2 ./ baseline_ch2;
+    
+    %% SAVE PURPLE AND BLUE CHANNELS
+    cd(processed_path);
+    
+    if purple_first
+        % Channel 1 = purple (calcium), Channel 2 = blue (hemodynamic)
+        save(sprintf('trial_%d_purple.mat', trial), 'signal_ch1', '-v7.3');
+        save(sprintf('trial_%d_blue.mat', trial), 'signal_ch2', '-v7.3');
+        signal_corrected = signal_ch2 - signal_ch1;  % Blue - Purple
+    else
+        % Channel 1 = blue (hemodynamic), Channel 2 = purple (calcium)
+        save(sprintf('trial_%d_blue.mat', trial), 'signal_ch1', '-v7.3');
+        save(sprintf('trial_%d_purple.mat', trial), 'signal_ch2', '-v7.3');
+        signal_corrected = signal_ch1 - signal_ch2;  # Blue - Purple
+    end
+    
+    %% HEMODYNAMIC CORRECTION
+    % Subtract blue channel from purple to remove hemodynamic artifacts
+    % Result is true calcium signal (ΔF/F)
+    
+    % Save raw corrected signal
+    save(sprintf('trial_%d_corrected.mat', trial), 'signal_corrected', '-v7.3');
+    
+    %% SMOOTH SIGNAL
+    % Apply 5-frame moving average to reduce noise
+    % Smoothing window = 5 frames ≈ 0.5 seconds at 10 Hz
+    signal_smoothed = smoothdata(signal_corrected, 2, 'movmean', 5);
+    
+    % Save final smoothed corrected signal (primary output)
+    save(sprintf('trial_%d_corrected_smoothed.mat', trial), 'signal_smoothed');
+    
+    %% OPTIONAL: PLOT TIME SERIES FOR QUALITY CONTROL
+    if params.show_plots
+        figure('Name', sprintf('Trial %d - Corrected Calcium Signals', trial), ...
+               'Position', [50 50 1400 900]);
+        
+        for site = 1:num_sites
+            subplot(12, 4, site);
+            plot(signal_smoothed(site, :), 'LineWidth', 1);
+            title(recording_sites(site).name, 'Interpreter', 'none', 'FontSize', 8);
+            xlabel('Frame', 'FontSize', 7);
+            ylabel('ΔF/F₀', 'FontSize', 7);
+            axis tight;
+            grid on;
+        end
+        
+        sgtitle(sprintf('Trial %d - All Recording Sites', trial), ...
+                'FontSize', 14, 'FontWeight', 'bold');
+    end
+    
+    fprintf('done\n');
+end
+
+fprintf('  All %d trials processed successfully\n', num_trials);
+
+end
