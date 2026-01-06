@@ -1,0 +1,69 @@
+function [frames] = read_dcam_file(file_path, num_frames, img_dims)
+% READ_DCAM_FILE Read frames from Hamamatsu DCAM binary format
+%
+% Reads raw imaging data from .dcimg files produced by Hamamatsu cameras
+% (C11440 or C13440). These files contain a binary header followed by
+% uint16 pixel data for each frame.
+%
+% INPUT:
+%   file_path - Full path to .dcimg file
+%   num_frames - Number of frames to read from file
+%   img_dims - [height, width] of each frame (typically [512, 512])
+%
+% OUTPUT:
+%   frames - 3D array of size [height × width × num_frames]
+%            Contains uint16 pixel intensities (0-65535 range)
+%
+% FILE FORMAT DETAILS:
+%   Header: 1208 bytes for C13440 camera (2×604 char values)
+%           232 bytes for C11440 camera
+%   Data: uint16 pixels in little-endian (ieee-le) format
+%   Extra: 16 bytes of metadata per frame (removed during processing)
+%
+% PROCESSING STEPS:
+%   1. Open file and skip header bytes
+%   2. Read all uint16 pixel data
+%   3. Account for 16 extra metadata bytes per frame
+%   4. Remove metadata and reshape to [height × width × frames]
+
+% Open file for binary reading
+fid = fopen(file_path, 'r');
+
+% Validate file opened successfully
+if fid == -1
+    error('Could not open DCAM file: %s\nCheck file path and permissions.', file_path);
+end
+
+% Read and skip header (1208 bytes for C13440 camera)
+% For C11440 camera, change to: hdr = fread(fid, 232, 'char*1', 'ieee-le');
+hdr = fread(fid, 2*604, 'char*1', 'ieee-le');
+
+% Read all remaining pixel data as uint16 values
+% Data is stored in little-endian format (intel byte order)
+v = fread(fid, 'uint16', 'ieee-le');
+
+% Close file handle
+fclose(fid);
+
+% Calculate total values per frame including metadata
+pixels_per_frame = prod(img_dims);  % 512 × 512 = 262,144 pixels
+values_per_frame = pixels_per_frame + 16;  % +16 bytes metadata
+
+% Extract image data portion (first num_frames × values_per_frame)
+v_img = v(1:(num_frames * values_per_frame));
+
+% Reshape to [values_per_frame × num_frames] matrix
+frames_raw = reshape(v_img, [values_per_frame, num_frames]);
+
+% Remove metadata bytes that appear at specific locations
+% Camera inserts 16 bytes of metadata within the frame data
+% Bytes at positions 130561-130564 are duplicates of 262151-262154
+frames_raw(130561:130564, :) = frames_raw(262151:262154, :);
+
+% Remove the last 16 bytes (metadata) from each frame
+frames_raw(end-15:end, :) = [];
+
+% Reshape to final 3D array: [height × width × num_frames]
+frames = reshape(frames_raw(:), [img_dims(1), img_dims(2), num_frames]);
+
+end
