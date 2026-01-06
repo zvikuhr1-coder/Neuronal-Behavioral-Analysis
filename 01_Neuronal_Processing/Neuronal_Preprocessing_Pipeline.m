@@ -309,14 +309,6 @@ fprintf('=============================================================\n');
 %    - Dual wavelength: ~1 GB per trial
 %    - Ensure sufficient RAM for your number of trials
 %
-%
-% PERFORMANCE OPTIMIZATION:
-% ------------------------
-% - Set plot_flag=0 to skip visualization (much faster)
-% - Use SSD storage for faster file I/O
-% - Process trials in parallel (requires code modification)
-% - Pre-allocate arrays when possible
-%
 % DATA QUALITY CHECKS:
 % -------------------
 % - Verify green reference images show clear fiber positions
