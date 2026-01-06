@@ -1,0 +1,104 @@
+function define_recording_sites(data_path)
+% DEFINE_RECORDING_SITES Interactive ROI definition for fiber array
+%
+% Creates circular ROIs for 48 recording sites arranged in a 4×12 grid.
+% Each ROI corresponds to a fiber positioned over a specific brain region.
+%
+% INPUT:
+%   data_path - Path to data folder containing reference images
+%
+% OUTPUT FILES (saved in data_path/reference/):
+%   recording_sites.mat - Structure array with ROI information for 48 sites
+%   chamber_mask.mat - Binary mask indicating pixels outside recording area
+%
+% RECORDING SITE LAYOUT (4 rows × 12 columns, 48 total sites):
+% Row 1: S1BF, CPU, S1BF, x, GP, x, x, x, x, M1, Re, Re
+% Row 2: BLA, BLA, S1BF, CeM, RT, S1BF, VPM, CA3, CA3, CA1, DG, Re
+% Row 3: x, PRh, DLEnt, DIEnt, DIEnt, DIEnt, DG, Ment, DG, Post, x, RSD
+% Row 4: x, DLEnt, Ment, TEA, CEnt, CEnt, V1, Prs, Post, x, RSD, x
+%
+% Brain region abbreviations:
+%   S1BF - Primary Somatosensory Cortex Barrel Field
+%   CPU - Caudate Putamen
+%   GP - Globus Pallidus
+%   M1 - Primary Motor Cortex
+%   Re - Nucleus Reuniens
+%   BLA - Basolateral Amygdala
+%   CeM - Central Medial Amygdala
+%   RT - Reticular Thalamic Nucleus
+%   VPM - Ventral Posteromedial Thalamic Nucleus
+%   CA1/CA3 - Hippocampal subregions
+%   DG - Dentate Gyrus
+%   x - Unused position
+%
+% INTERACTIVE STEPS:
+%   1. Display raw frames for inspection
+%   2. Draw rectangle around fiber array chamber on reference image
+%   3. Adjust corner ROI positions (8 corner sites that define the grid)
+%   4. Intermediate ROIs are automatically interpolated between corners
+%   5. Press Enter when satisfied with ROI placement
+
+% Navigate to reference folder where images are stored
+reference_path = fullfile(data_path, 'reference');
+cd(reference_path);
+
+% Load reference images created in previous step
+load('reference_image_full.mat', 'reference_full');
+load('reference_image_downsampled.mat', 'reference_downsampled');
+
+% Define image dimensions
+img_dims = [512 512];
+img_dim_x = img_dims(2);
+
+% STEP 1: Display raw frames for quality inspection
+load('raw_frames.mat', 'frame_1', 'frame_2');
+
+figure('Name', 'Raw Frames Inspection', 'Position', [100 100 1000 400]);
+subplot(1, 2, 1)
+imagesc(frame_1, [0 25000]); 
+colormap(gray);
+title('Frame 1 - Check fiber positions');
+axis image;
+
+subplot(1, 2, 2)
+imagesc(frame_2, [0 25000]); 
+colormap(gray);
+title('Frame 2 - Verify consistent signal');
+axis image;
+
+% STEP 2: Define chamber boundary (fiber array region)
+% This mask excludes pixels outside the recording chamber
+figure(99);
+imagesc(reference_full, [0 15000]); 
+colormap(gray);
+title('Draw rectangle around entire fiber array chamber');
+xlabel('X pixels');
+ylabel('Y pixels');
+axis image;
+
+% User draws rectangle to define valid recording area
+h = imrect(gca);
+wait(h);  % Wait for user to finish positioning rectangle
+
+% Create binary mask from rectangle
+chamber = createMask(h);
+
+% Convert mask to list of pixels to exclude (outside chamber)
+t = zeros(img_dim_x * img_dim_x, 1);
+t(chamber) = 1;  % Mark chamber pixels as 1
+chamber_mask = find(t == 0);  % Find indices of pixels outside chamber
+
+% Save chamber mask for use in signal extraction
+save('chamber_mask.mat', 'chamber_mask');
+close(gcf);
+
+% STEP 3: Define individual recording site ROIs interactively
+fprintf('  Opening ROI selection interface...\n');
+fprintf('  You will adjust the 8 corner ROIs (sites 1,12,13,24,25,36,37,48)\n');
+fprintf('  All other ROIs will be automatically interpolated\n\n');
+
+recording_sites = select_recording_site_rois(reference_path);
+
+fprintf('  48 recording sites defined and saved\n');
+
+end
