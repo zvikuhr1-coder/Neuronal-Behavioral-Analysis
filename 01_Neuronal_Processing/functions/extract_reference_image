@@ -44,8 +44,8 @@ fprintf('  Reading first file: %s\n', file_list(1).name);
 [raw_frames] = read_dcam_file(first_file, 2, img_dims);
 
 % Extract individual frames for processing
-frame_1 = raw_frames(:, :, 1);
-frame_2 = raw_frames(:, :, 2);
+frame_1 = raw_frames(:, :, 1)';
+frame_2 = raw_frames(:, :, 2)';
 
 % Create downsampled version (256x256) for efficient ROI selection
 % This smaller version speeds up interactive ROI placement
