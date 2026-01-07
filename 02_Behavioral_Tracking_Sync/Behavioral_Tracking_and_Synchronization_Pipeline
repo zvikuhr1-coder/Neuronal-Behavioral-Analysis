@@ -65,9 +65,7 @@
 %   - arenaPolygon.mat: Arena boundary definition
 %   - timestamps.mat: Video frame timestamps
 %
-% Author: [Your Name]
-% GitHub: [Repository URL]
-% Last Modified: [Date]
+
 % =========================================================================
 
 %% Setup
