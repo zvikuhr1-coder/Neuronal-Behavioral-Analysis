@@ -7,28 +7,32 @@
 % REQUIREMENTS:
 %   Input Files:
 %   - video.avi (behavioral recording)
-%   - DLC_tracking.csv (DeepLabCut output)
+%   - DLC_tracking.csv (DeepLabCut output - run DLC before this pipeline)
 %   - trial*.dcimg (imaging files)
-%   - Matt_files/tc_all_brain_areas_CORRECTED*.mat (from neuronal pipeline)
+%   - processed/trial_*_corrected.mat (from neuronal pipeline)
 %
 %   External Software:
-%   - FFmpeg (timestamp extraction)
-%   - DeepLabCut (run before this pipeline)
+%   - FFmpeg (batch file included in functions/ folder)
+%   - DeepLabCut (for CSV generation - external tool)
 %
-%   Functions:
-%   - process_background.m
-%   - define_arena_roi.m
-%   - batch_file_handler.m
-%   - extract_video_timestamps.m
-%   - detect_trial_starts.m
-%   - synchronize_behavior_imaging.m
+%   Functions (in functions/ subfolder):
+%   - extract_background_frame.m
+%   - define_arena_boundary.m
+%   - execute_ffmpeg_batch.m
+%   - parse_video_timestamps.m
+%   - detect_trial_onsets.m
+%   - synchronize_tracking_imaging.m
+%   - filter_arena_coordinates.m (utility)
+%   - correct_tracking_outliers.m (utility)
 %
 % OUTPUT:
-%   Matt_files/
-%   - correctedTrackingData.mat (x_CORRECTED_ALL, y_CORRECTED_ALL)
-%   - tc_all_brain_areas_CORRECTED_ALL.mat
-%   - vec_for_vid_new.mat, vec_for_intorp_new.mat
-%   - timestamps.mat, trials_start.mat
+%   processed/
+%   - synchronized_tracking.mat (x_position_aligned, y_position_aligned)
+%   - imaging_data_aligned.mat (concatenated imaging data)
+%   - frame_alignment_indices.mat
+%   - interpolation_markers.mat
+%   - video_timestamps.mat
+%   - trial_starts.mat
 %
 % Author: [Your Name]
 % GitHub: [Repository URL]
@@ -45,75 +49,72 @@ addpath(fullfile(pwd, 'functions'));
 % ==========================================================================
 
 % Data path containing video, DLC CSV, and imaging files
-behav_path = 'D:\AD_6\AD21\1L1R\TEST';
-
-% FFmpeg batch file path for timestamp extraction
-batch_file_path = 'K:\extract_timestamps.bat';
+data_path = 'C:\Path\To\Your\Data\Folder';
 
 % ==========================================================================
 
 fprintf('\n=====================================================\n');
 fprintf('  BEHAVIORAL TRACKING & SYNCHRONIZATION PIPELINE\n');
 fprintf('=====================================================\n\n');
-fprintf('Data: %s\n\n', behav_path);
+fprintf('Data: %s\n\n', data_path);
 
 %% Validate Inputs
 fprintf('Validating inputs...\n');
 
-if ~exist(behav_path, 'dir')
-    error('Data directory not found: %s', behav_path);
+if ~exist(data_path, 'dir')
+    error('Data directory not found: %s', data_path);
 end
 
 % Check video file
-video_files = dir(fullfile(behav_path, '*.avi'));
+video_files = dir(fullfile(data_path, '*.avi'));
 if isempty(video_files)
     error('No .avi video file found');
 end
 fprintf('  ✓ Video: %s\n', video_files(1).name);
 
 % Check DLC CSV
-csv_files = dir(fullfile(behav_path, '*.csv'));
+csv_files = dir(fullfile(data_path, '*.csv'));
 if isempty(csv_files)
     error('No CSV tracking file found. Run DeepLabCut first.');
 end
 fprintf('  ✓ DLC CSV: %s\n', csv_files(1).name);
 
-% Check Matt_files directory
-brain_path = fullfile(behav_path, 'Matt_files');
-if ~exist(brain_path, 'dir')
-    mkdir(brain_path);
-    fprintf('  ✓ Created Matt_files directory\n');
+% Check processed directory
+processed_path = fullfile(data_path, 'processed');
+if ~exist(processed_path, 'dir')
+    mkdir(processed_path);
+    fprintf('  ✓ Created processed/ directory\n');
 else
-    fprintf('  ✓ Matt_files directory exists\n');
+    fprintf('  ✓ processed/ directory exists\n');
 end
 
 fprintf('\n');
 
 %% Stage 1: Background Frame
 fprintf('-----------------------------------------------------\n');
-fprintf('STAGE 1: Generate Background Frame\n');
+fprintf('STAGE 1: Extract Background Frame\n');
 fprintf('-----------------------------------------------------\n');
 
-if exist(fullfile(behav_path, 'background_frame.mat'), 'file')
+if exist(fullfile(data_path, 'background_frame.mat'), 'file')
     fprintf('Background frame exists. Skipping...\n');
 else
-    process_background(behav_path);
+    extract_background_frame(data_path);
     fprintf('✓ Background frame created\n');
 end
 fprintf('\n');
 
-%% Stage 2: Arena Boundaries
+%% Stage 2: Arena Boundary
 fprintf('-----------------------------------------------------\n');
-fprintf('STAGE 2: Define Arena Boundaries\n');
+fprintf('STAGE 2: Define Arena Boundary\n');
 fprintf('-----------------------------------------------------\n');
 
-if exist(fullfile(behav_path, 'arenaPolygon.mat'), 'file')
+if exist(fullfile(data_path, 'arena_polygon.mat'), 'file')
     fprintf('Arena polygon exists. Skipping...\n');
 else
     fprintf('Draw polygon around arena perimeter.\n');
     fprintf('Double-click to finish.\n\n');
-    define_arena_roi(behav_path);
-    fprintf('✓ Arena boundaries defined\n');
+    define_arena_boundary(data_path);
+    fprintf('✓ Arena boundary defined\n');
 end
 fprintf('\n');
 
@@ -122,53 +123,49 @@ fprintf('-----------------------------------------------------\n');
 fprintf('STAGE 3: Extract Video Timestamps\n');
 fprintf('-----------------------------------------------------\n');
 
-if exist(fullfile(brain_path, 'timestamps.mat'), 'file')
+if exist(fullfile(processed_path, 'video_timestamps.mat'), 'file')
     fprintf('Timestamps exist. Skipping...\n');
 else
-    if ~exist(batch_file_path, 'file')
-        error('FFmpeg batch file not found: %s', batch_file_path);
-    end
-    
     fprintf('Executing FFmpeg batch file...\n');
-    batch_file_handler(behav_path, batch_file_path);
+    execute_ffmpeg_batch(data_path);
     
     fprintf('Parsing timestamps...\n');
-    extract_video_timestamps(behav_path);
+    parse_video_timestamps(data_path);
     fprintf('✓ Timestamps extracted\n');
 end
 fprintf('\n');
 
-%% Stage 4: Trial Starts
+%% Stage 4: Trial Onsets
 fprintf('-----------------------------------------------------\n');
-fprintf('STAGE 4: Detect Trial Starts\n');
+fprintf('STAGE 4: Detect Trial Onsets\n');
 fprintf('-----------------------------------------------------\n');
 
-if exist(fullfile(brain_path, 'trials_start.mat'), 'file')
+if exist(fullfile(processed_path, 'trial_starts.mat'), 'file')
     fprintf('Trial starts exist. Loading...\n');
-    load(fullfile(brain_path, 'trials_start.mat'), 'trials_start');
-    fprintf('  ✓ %d trials\n', length(trials_start));
+    load(fullfile(processed_path, 'trial_starts.mat'), 'trial_starts');
+    fprintf('  ✓ %d trials\n', length(trial_starts));
 else
     fprintf('Draw circle around LED indicator.\n');
     fprintf('Verify each detected trial.\n\n');
-    trials_start = detect_trial_starts(behav_path);
-    fprintf('✓ %d trials detected\n', length(trials_start));
+    trial_starts = detect_trial_onsets(data_path);
+    fprintf('✓ %d trials detected\n', length(trial_starts));
 end
 fprintf('\n');
 
 %% Stage 5: Synchronization
 fprintf('-----------------------------------------------------\n');
-fprintf('STAGE 5: Synchronize Behavior and Imaging\n');
+fprintf('STAGE 5: Synchronize Tracking and Imaging\n');
 fprintf('-----------------------------------------------------\n');
 
-corrected_file = fullfile(brain_path, 'correctedTrackingData.mat');
-if exist(corrected_file, 'file')
+sync_file = fullfile(processed_path, 'synchronized_tracking.mat');
+if exist(sync_file, 'file')
     fprintf('Synchronized data exists. Skipping...\n');
-    load(corrected_file, 'x_CORRECTED_ALL', 'y_CORRECTED_ALL');
-    fprintf('  ✓ %d frames\n', length(x_CORRECTED_ALL));
+    load(sync_file, 'x_position_aligned', 'y_position_aligned');
+    fprintf('  ✓ %d frames\n', length(x_position_aligned));
 else
-    synchronize_behavior_imaging(behav_path);
-    load(corrected_file, 'x_CORRECTED_ALL', 'y_CORRECTED_ALL');
-    fprintf('✓ Synchronization complete: %d frames\n', length(x_CORRECTED_ALL));
+    synchronize_tracking_imaging(data_path);
+    load(sync_file, 'x_position_aligned', 'y_position_aligned');
+    fprintf('✓ Synchronization complete: %d frames\n', length(x_position_aligned));
 end
 fprintf('\n');
 
@@ -178,24 +175,24 @@ fprintf('  PIPELINE COMPLETE\n');
 fprintf('=====================================================\n\n');
 
 % Load final data
-imaging_file = fullfile(brain_path, 'tc_all_brain_areas_CORRECTED_ALL.mat');
+imaging_file = fullfile(processed_path, 'imaging_data_aligned.mat');
 if exist(imaging_file, 'file')
-    load(imaging_file, 'tc_all_brain_areas_CORRECTED_ALL');
+    load(imaging_file, 'imaging_data_aligned');
     fprintf('Output Summary:\n');
-    fprintf('  Tracking: %d frames\n', length(x_CORRECTED_ALL));
+    fprintf('  Tracking: %d frames\n', length(x_position_aligned));
     fprintf('  Imaging: %d ROIs × %d frames\n', ...
-            size(tc_all_brain_areas_CORRECTED_ALL, 1), ...
-            size(tc_all_brain_areas_CORRECTED_ALL, 2));
+            size(imaging_data_aligned, 1), ...
+            size(imaging_data_aligned, 2));
     fprintf('  Valid data: %.1f%%\n\n', ...
-            100 * sum(~isnan(x_CORRECTED_ALL)) / length(x_CORRECTED_ALL));
+            100 * sum(~isnan(x_position_aligned)) / length(x_position_aligned));
 end
 
-fprintf('Output Location: %s\n', brain_path);
+fprintf('Output Location: %s\n', processed_path);
 fprintf('Key Files:\n');
-fprintf('  - correctedTrackingData.mat\n');
-fprintf('  - tc_all_brain_areas_CORRECTED_ALL.mat\n');
-fprintf('  - vec_for_vid_new.mat\n');
-fprintf('  - timestamps.mat\n');
-fprintf('  - trials_start.mat\n\n');
+fprintf('  - synchronized_tracking.mat\n');
+fprintf('  - imaging_data_aligned.mat\n');
+fprintf('  - frame_alignment_indices.mat\n');
+fprintf('  - video_timestamps.mat\n');
+fprintf('  - trial_starts.mat\n\n');
 
 fprintf('=====================================================\n\n');
