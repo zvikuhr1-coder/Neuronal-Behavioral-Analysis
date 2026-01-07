@@ -1,0 +1,100 @@
+function extract_background_frame(data_path)
+% EXTRACT_BACKGROUND_FRAME Generate average background frame from video
+%
+% Syntax:
+%   extract_background_frame(data_path)
+%
+% Description:
+%   Creates a background frame by averaging 150 randomly sampled frames from
+%   the behavioral video. This background is used for arena definition and
+%   visualization purposes.
+%
+% Input:
+%   data_path - Directory containing behavioral video file (.avi or .mp4)
+%
+% Output:
+%   background_frame.mat - Average background image (uint8 RGB)
+%   video_dimensions.mat - Video height and width (vidH, vidW)
+%
+% Algorithm:
+%   1. Randomly samples 150 frames uniformly across video duration
+%   2. Computes pixel-wise average across all sampled frames
+%   3. Converts to uint8 format and saves results
+%
+% Notes:
+%   - If background_frame.mat exists, function exits without processing
+%   - Prefers .avi files over .mp4 if both are present
+%
+% See also: VideoReader, imresize
+
+cd(data_path);
+
+% Exit if background frame already exists
+if exist('background_frame.mat', 'file')
+    fprintf('Background frame already exists. Skipping...\n');
+    return;
+end
+
+% Detect video format (prefer .avi over .mp4)
+avi_files = dir('*.avi');
+if ~isempty(avi_files)
+    video_file = avi_files(1);
+elseif ~isempty(dir('*.mp4'))
+    video_file = dir('*.mp4');
+    video_file = video_file(1);
+else
+    error('No video file (.avi or .mp4) found in %s', data_path);
+end
+
+% Get video properties
+filename = fullfile(video_file.folder, video_file.name);
+info = mmfileinfo(video_file.name);
+vidW = info.Video.Width;
+vidH = info.Video.Height;
+
+fprintf('Video: %s (%dx%d pixels)\n', video_file.name, vidW, vidH);
+
+% Initialize video reader
+vid = VideoReader(filename);
+nframes = vid.NumFrames;
+
+% Generate random frame indices for sampling
+num_samples = 150;
+random_frames = 1 + (nframes - 1) .* rand(num_samples, 1);
+
+% Initialize accumulator for background frame
+background_frame = zeros(vidH, vidW, 3);
+
+% Process each color channel separately
+fprintf('Sampling %d random frames...\n', num_samples);
+for channel = 1:3
+    fprintf('  Processing channel %d/3...\n', channel);
+    
+    % Accumulate pixel values across all sampled frames
+    for i = 1:num_samples
+        % Read randomly selected frame
+        frame = double(read(vid, ceil(random_frames(i))));
+        frame = imresize(frame, [vidH vidW]);
+        
+        % Add to accumulator
+        background_frame(:, :, channel) = background_frame(:, :, channel) + ...
+                                          frame(:, :, channel);
+    end
+end
+
+% Compute average and convert to uint8
+background_frame = background_frame / num_samples;
+background_frame = uint8(background_frame);
+
+% Display result
+figure('Name', 'Background Frame');
+imshow(background_frame);
+title('Average Background Frame');
+
+% Save outputs
+save('background_frame', 'background_frame');
+save('video_dimensions', 'vidH', 'vidW');
+
+fprintf('✓ Background frame created\n');
+
+end
