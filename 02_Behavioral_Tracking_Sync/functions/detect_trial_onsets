@@ -1,0 +1,223 @@
+function trial_starts = detect_trial_onsets(data_path)
+% DETECT_TRIAL_ONSETS Identify trial start frames via LED indicator
+%
+% Syntax:
+%   trial_starts = detect_trial_onsets(data_path)
+%
+% Description:
+%   Detects trial start times by analyzing LED indicator changes in
+%   behavioral video. First trial detected via change point detection,
+%   subsequent trials calculated at 300s intervals and verified by user.
+%
+% Input:
+%   data_path - Directory containing video, timestamps, and imaging files
+%
+% Output:
+%   trial_starts - Nx1 array of trial start frame indices
+%
+% Output Files:
+%   processed/trial_starts.mat - Trial start frame indices
+%
+% Algorithm:
+%   1. User draws circular ROI around LED indicator
+%   2. Analyzes LED intensity in first 60 seconds
+%   3. Detects first trial via linear change point detection (threshold=500)
+%   4. Calculates subsequent trials by adding 300s intervals
+%   5. User verifies each trial with ±20s visualization window
+%
+% Notes:
+%   - Requires video_timestamps.mat and imaging files to exist
+%   - If trial_starts.mat exists, loads existing data
+%
+% See also: ischange, VideoReader, drawcircle
+
+processed_path = fullfile(data_path, 'processed');
+cd(processed_path);
+
+% Check if trial starts already exist
+if exist('trial_starts.mat', 'file')
+    fprintf('Loading existing trial starts...\n');
+    load('trial_starts.mat', 'trial_starts');
+    return;
+end
+
+cd(data_path);
+
+% Locate video file
+video_files = dir('*.avi');
+if isempty(video_files)
+    error('No .avi video file found');
+end
+video_name = video_files(1).name;
+
+% Determine number of trials from imaging files
+imaging_files = dir('*.dcimg');
+num_trials = length(imaging_files);
+fprintf('Detected %d trials from imaging files\n', num_trials);
+
+% Load timestamps
+cd(processed_path);
+if ~exist('video_timestamps.mat', 'file')
+    error('video_timestamps.mat not found. Run parse_video_timestamps first.');
+end
+load('video_timestamps.mat', 'video_timestamps');
+
+% Initialize video reader
+cd(data_path);
+vid = VideoReader(fullfile(data_path, video_name));
+
+% Calculate frames to analyze (60 seconds at ~20 fps)
+frame_rate = 20;
+frames_to_read = min(round(60 * frame_rate), vid.NumFrames);
+
+fprintf('Analyzing first %d frames for LED detection\n', frames_to_read);
+
+%% LED ROI Selection
+fprintf('\n--- LED ROI Selection ---\n');
+fprintf('Draw a circle around the LED indicator\n');
+
+% Display reference frame
+ref_frame = read(vid, 100);
+figure('Name', 'LED ROI Selection');
+imagesc(ref_frame(:, :, 1));
+colormap gray;
+axis image;
+title('Draw circle around LED indicator');
+
+% Interactive ROI drawing
+roi_obj = drawcircle('Color', 'r', 'LineWidth', 2);
+pause;
+roi_mask = createMask(roi_obj);
+close(gcf);
+
+%% Extract LED Intensity
+fprintf('Extracting LED intensity...\n');
+
+% Reset video reader
+vid = VideoReader(fullfile(data_path, video_name));
+
+% Preallocate
+led_intensity = zeros(frames_to_read, 1);
+
+% Process frames
+for i = 1:frames_to_read
+    frame = readFrame(vid);
+    frame_gray = double(frame(:, :, 1));
+    led_intensity(i) = mean(frame_gray(roi_mask), 'omitnan');
+end
+
+%% Detect First Trial
+fprintf('Detecting first trial...\n');
+
+% Change point detection
+change_detected = ischange(led_intensity, 'linear', 'Threshold', 500);
+change_points = find(change_detected);
+
+if isempty(change_points)
+    error('No LED changes detected. Check LED visibility.');
+end
+
+% Filter weak changes
+max_intensity = max(led_intensity(change_points));
+strong_changes = change_points(led_intensity(change_points) > max_intensity - 50);
+
+if isempty(strong_changes)
+    error('No strong LED changes detected');
+end
+
+first_trial_frame = strong_changes(1);
+first_trial_time = video_timestamps(first_trial_frame);
+
+fprintf('First trial at frame %d (%.2f s)\n', first_trial_frame, first_trial_time);
+
+%% Calculate All Trial Starts
+trial_starts = zeros(num_trials, 1);
+trial_times = zeros(num_trials, 1);
+
+trial_starts(1) = first_trial_frame;
+trial_times(1) = first_trial_time;
+
+% Subsequent trials at 300s intervals
+for tt = 2:num_trials
+    trial_times(tt) = trial_times(tt-1) + 300;
+    [~, frame_idx] = min(abs(video_timestamps - trial_times(tt)));
+    trial_starts(tt) = frame_idx;
+    fprintf('Trial %d at frame %d (%.2f s)\n', tt, trial_starts(tt), trial_times(tt));
+end
+
+%% Visualize First Trial
+figure('Name', 'First Trial Detection');
+plot(video_timestamps(1:frames_to_read), led_intensity, 'b-', 'LineWidth', 1.5);
+hold on;
+scatter(first_trial_time, led_intensity(first_trial_frame), 150, 'r', 'filled');
+grid on;
+xlabel('Time (s)');
+ylabel('LED Intensity');
+title('First Trial Detection');
+legend('LED Intensity', 'Detected Start');
+
+%% User Verification
+fprintf('\n--- Trial Verification ---\n');
+
+for tt = 1:num_trials
+    current_frame = trial_starts(tt);
+    current_time = video_timestamps(current_frame);
+    
+    % Define ±20s window
+    [~, start_idx] = min(abs(video_timestamps - (current_time - 20)));
+    [~, end_idx] = min(abs(video_timestamps - (current_time + 20)));
+    start_idx = max(1, start_idx);
+    end_idx = min(length(video_timestamps), end_idx);
+    
+    window_frames = start_idx:end_idx;
+    frames_needed = length(window_frames);
+    
+    % Extract LED intensity for window
+    vid_verify = VideoReader(fullfile(data_path, video_name));
+    vid_verify.CurrentTime = video_timestamps(start_idx);
+    
+    window_intensity = zeros(frames_needed, 1);
+    for i = 1:frames_needed
+        if ~hasFrame(vid_verify), break; end
+        frame = readFrame(vid_verify);
+        frame_gray = double(frame(:, :, 1));
+        window_intensity(i) = mean(frame_gray(roi_mask), 'omitnan');
+    end
+    
+    % Plot verification window
+    fig = figure('Name', sprintf('Trial %d Verification', tt));
+    plot(video_timestamps(window_frames), window_intensity, 'b-', 'LineWidth', 1.5);
+    hold on;
+    scatter(current_time, window_intensity(current_frame - start_idx + 1), 150, 'r', 'filled');
+    xline(current_time, 'r--', 'LineWidth', 2);
+    grid on;
+    xlabel('Time (s)');
+    ylabel('LED Intensity');
+    title(sprintf('Trial %d Verification', tt));
+    legend('LED Intensity', 'Detected Start', 'Trial Time');
+    
+    % User confirmation
+    choice = questdlg(sprintf('Is Trial %d start correct?', tt), ...
+                      sprintf('Verify Trial %d', tt), ...
+                      'Yes', 'No - Manual Adjust', 'Yes');
+    
+    if strcmp(choice, 'No - Manual Adjust')
+        title(sprintf('CLICK correct start point for Trial %d', tt), 'Color', 'r');
+        [x_click, ~] = ginput(1);
+        [~, new_idx] = min(abs(video_timestamps(window_frames) - x_click));
+        trial_starts(tt) = window_frames(new_idx);
+        fprintf('Trial %d adjusted to frame %d (%.2f s)\n', ...
+                tt, trial_starts(tt), video_timestamps(trial_starts(tt)));
+    end
+    
+    close(fig);
+end
+
+%% Save Results
+cd(processed_path);
+save('trial_starts', 'trial_starts');
+fprintf('✓ Trial starts saved: processed/trial_starts.mat\n');
+
+cd(data_path);
+
+end
