@@ -155,7 +155,7 @@ fprintf('  Interpolating intermediate ROIs...\n');
 for row = 1:4
     % Get corner indices for this row
     start_idx = corner_sites(2 * row - 1);  % Left corner (1, 13, 25, 37)
-    end_idx = corner_sites(2 * row);        # Right corner (12, 24, 36, 48)
+    end_idx = corner_sites(2 * row);        % Right corner (12, 24, 36, 48)
     
     % Get corner parameters
     start_center = recording_sites(start_idx).center;
@@ -207,7 +207,7 @@ save('recording_sites.mat', 'recording_sites');
 
 % Keep figure open briefly to show final result
 pause(2);
-close(gcf);
+%close(gcf);
 
 fprintf('  ROI selection complete!\n');
 
