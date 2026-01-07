@@ -1,0 +1,286 @@
+function synchronize_tracking_imaging(data_path)
+% SYNCHRONIZE_TRACKING_IMAGING Align behavioral tracking with imaging
+%
+% Syntax:
+%   synchronize_tracking_imaging(data_path)
+%
+% Description:
+%   Synchronizes DeepLabCut tracking coordinates with calcium imaging frames
+%   by temporally aligning video timestamps with imaging acquisition. Handles
+%   multiple trials, filters arena boundaries, corrects outliers, and
+%   interpolates missing data.
+%
+% Input:
+%   data_path - Directory containing:
+%               - DLC_tracking.csv (DeepLabCut output)
+%               - video_timestamps.mat
+%               - trial_starts.mat
+%               - arena_polygon.mat
+%               - processed/trial_*_corrected.mat (imaging data)
+%
+% Output Files (in processed/):
+%   - synchronized_tracking.mat (x_position_aligned, y_position_aligned)
+%   - imaging_data_aligned.mat (concatenated imaging data)
+%   - frame_alignment_indices.mat (imaging frame → video frame)
+%   - interpolation_markers.mat (NaN for poorly aligned frames)
+%
+% Algorithm:
+%   1. Load DLC tracking, extract median X/Y from multiple body parts
+%   2. Filter points outside arena (replace with NaN)
+%   3. Create temporal map: 10Hz imaging → ~20Hz video frames
+%   4. For each trial:
+%      - Map imaging frames to nearest video frames
+%      - Flag frames with >20ms mismatch for interpolation
+%      - Extract tracking coordinates for mapped frames
+%      - Interpolate NaN gaps linearly
+%      - Correct outliers (15-frame window, 15-pixel threshold)
+%   5. Concatenate all trials into continuous dataset
+%
+% Parameters:
+%   - Imaging frame rate: 10 Hz
+%   - Temporal mismatch threshold: 20 ms
+%   - Outlier window: 15 frames
+%   - Outlier threshold: 15 pixels
+%
+% See also: filter_arena_coordinates, correct_tracking_outliers
+
+%% Initialize
+processed_path = fullfile(data_path, 'processed');
+cd(processed_path);
+
+% Load trial timing
+if ~exist('trial_starts.mat', 'file')
+    error('trial_starts.mat not found. Run detect_trial_onsets first.');
+end
+load('trial_starts.mat', 'trial_starts');
+
+% Load timestamps
+if ~exist('video_timestamps.mat', 'file')
+    error('video_timestamps.mat not found. Run parse_video_timestamps first.');
+end
+load('video_timestamps.mat', 'video_timestamps');
+
+% Determine number of trials
+num_trials = length(trial_starts);
+
+% Imaging parameters
+fps = 10;  % Hz
+fpm = fps * 60;
+
+% Load first trial to get dimensions
+trial_files = dir('trial_*_corrected.mat');
+if isempty(trial_files)
+    error('No trial imaging files found in processed/');
+end
+
+load(trial_files(1).name);
+% Variable name depends on neuronal pipeline output
+if exist('trial_corrected', 'var')
+    imaging_data_trial = trial_corrected;
+elseif exist('corrected_signals', 'var')
+    imaging_data_trial = corrected_signals;
+else
+    vars = whos;
+    imaging_data_trial = eval(vars(1).name);
+end
+
+frames_per_trial = size(imaging_data_trial, 2);
+num_frames = frames_per_trial * num_trials;
+duration_mins = num_frames / fpm;
+
+fprintf('=== SYNCHRONIZATION PARAMETERS ===\n');
+fprintf('Trials: %d\n', num_trials);
+fprintf('Frames per trial: %d\n', frames_per_trial);
+fprintf('Total imaging frames: %d\n', num_frames);
+fprintf('Duration: %.1f minutes\n\n', duration_mins);
+
+%% Load DLC Tracking
+cd(data_path);
+
+csv_files = dir('*.csv');
+if isempty(csv_files)
+    error('No CSV tracking file found');
+end
+
+fprintf('Loading DLC tracking: %s\n', csv_files(1).name);
+
+tracking_table = readtable(csv_files(1).name);
+tracking_array = table2array(tracking_table);
+
+% Extract median X/Y from multiple body parts (robust to single part errors)
+% Assuming columns 5:3:11 are X coords, 6:3:12 are Y coords
+x_raw = median(tracking_array(:, 5:3:11), 2);
+y_raw = median(tracking_array(:, 6:3:12), 2);
+
+fprintf('Loaded %d tracking points\n', length(x_raw));
+
+%% Filter Arena Boundaries
+fprintf('\n=== FILTERING ARENA ===\n');
+[x_filtered, y_filtered] = filter_arena_coordinates(data_path, x_raw, y_raw);
+
+%% Temporal Alignment
+fprintf('\n=== TEMPORAL ALIGNMENT ===\n');
+
+% Create idealized imaging timeline
+imaging_timeline = linspace(0, 60 * duration_mins, num_frames);
+
+% Initialize alignment arrays
+timestamp_adjusted = [];
+frame_indices = [];
+frame_indices_interp = [];
+temporal_mismatch = [];
+
+% Process each trial
+for trial = 1:num_trials
+    fprintf('Aligning trial %d/%d...\n', trial, num_trials);
+    
+    % Adjust timestamps relative to trial start (with buffer)
+    timestamp_start = video_timestamps(trial_starts(trial) - 15);
+    timestamp_adjusted(trial, :) = video_timestamps - timestamp_start;
+    
+    % Initialize for this trial
+    frame_indices(trial, :) = nan(1, frames_per_trial);
+    temporal_mismatch(trial, :) = nan(1, frames_per_trial);
+    
+    % Map each imaging frame to nearest video frame
+    for frame = 1:frames_per_trial
+        imaging_time = imaging_timeline(frame);
+        [time_diff, video_idx] = min(abs(imaging_time - timestamp_adjusted(trial, :)));
+        
+        frame_indices(trial, frame) = video_idx;
+        temporal_mismatch(trial, frame) = time_diff;
+    end
+    
+    % Flag poorly aligned frames (>20ms mismatch)
+    poor_alignment = temporal_mismatch(trial, :) > 0.02;
+    fprintf('  Poor alignment: %d frames (%.1f%%)\n', ...
+            sum(poor_alignment), 100*sum(poor_alignment)/frames_per_trial);
+    
+    % Create interpolation version
+    frame_indices_interp(trial, :) = frame_indices(trial, :);
+    frame_indices_interp(trial, poor_alignment) = nan;
+end
+
+% Reshape to continuous vectors
+frame_indices_continuous = reshape(frame_indices.', 1, []);
+frame_indices_interp_continuous = reshape(frame_indices_interp.', 1, []);
+
+% Save alignment vectors
+cd(processed_path);
+save('frame_alignment_indices', 'frame_indices_continuous');
+save('interpolation_markers', 'frame_indices_interp_continuous');
+
+%% Synchronize Tracking Coordinates
+fprintf('\n=== SYNCHRONIZING COORDINATES ===\n');
+
+x_synced_all = [];
+y_synced_all = [];
+
+for trial = 1:num_trials
+    fprintf('Processing trial %d/%d\n', trial, num_trials);
+    
+    % Map coordinates to imaging frames
+    x_synced = x_filtered(frame_indices(trial, :), 1);
+    y_synced = y_filtered(frame_indices(trial, :), 1);
+    
+    % Apply NaN mask for poorly aligned frames
+    x_synced(isnan(frame_indices_interp(trial, :))) = nan;
+    y_synced(isnan(frame_indices_interp(trial, :))) = nan;
+    
+    % Interpolate NaN gaps
+    valid_x = ~isnan(x_synced);
+    valid_y = ~isnan(y_synced);
+    
+    if sum(valid_x) < 2
+        warning('Trial %d has insufficient valid points', trial);
+        x_interp = x_synced;
+        y_interp = y_synced;
+    else
+        x_interp = interp1(find(valid_x), x_synced(valid_x), ...
+                          1:numel(x_synced), 'linear', 'extrap');
+        y_interp = interp1(find(valid_y), y_synced(valid_y), ...
+                          1:numel(y_synced), 'linear', 'extrap');
+    end
+    
+    % Correct outliers
+    tracking_combined = [x_interp; y_interp];
+    tracking_corrected = correct_tracking_outliers(tracking_combined, 15, 15);
+    
+    % Visualize correction
+    figure('Position', [100, 100, 1400, 500]);
+    
+    subplot(1, 2, 1);
+    plot(tracking_combined(1, :), tracking_combined(2, :), 'r-', 'LineWidth', 1.5);
+    axis equal; grid on;
+    title(sprintf('Trial %d - Original', trial));
+    xlabel('X (pixels)');
+    ylabel('Y (pixels)');
+    
+    subplot(1, 2, 2);
+    plot(tracking_corrected(1, :), tracking_corrected(2, :), 'b-', 'LineWidth', 1.5);
+    axis equal; grid on;
+    title(sprintf('Trial %d - Corrected', trial));
+    xlabel('X (pixels)');
+    ylabel('Y (pixels)');
+    
+    % Store corrected data
+    x_synced_all(trial, :) = tracking_corrected(1, :);
+    y_synced_all(trial, :) = tracking_corrected(2, :);
+end
+
+%% Concatenate Trials
+fprintf('\n=== CONCATENATING TRIALS ===\n');
+
+% Initialize combined arrays
+imaging_data_aligned = [];
+x_position_aligned = [];
+y_position_aligned = [];
+
+% Load and concatenate each trial
+cd(processed_path);
+for trial = 1:num_trials
+    % Load imaging data
+    trial_file = sprintf('trial_%d_corrected.mat', trial);
+    if ~exist(trial_file, 'file')
+        warning('Missing: %s', trial_file);
+        continue;
+    end
+    
+    load(trial_file);
+    
+    % Get imaging data (handle different variable names)
+    if exist('trial_corrected', 'var')
+        trial_data = trial_corrected;
+    elseif exist('corrected_signals', 'var')
+        trial_data = corrected_signals;
+    else
+        vars = whos;
+        trial_data = eval(vars(1).name);
+    end
+    
+    % Concatenate
+    imaging_data_aligned = [imaging_data_aligned, trial_data];
+    x_position_aligned = [x_position_aligned, x_synced_all(trial, :)];
+    y_position_aligned = [y_position_aligned, y_synced_all(trial, :)];
+end
+
+%% Save Final Outputs
+fprintf('\n=== SAVING RESULTS ===\n');
+
+save('synchronized_tracking', 'x_position_aligned', 'y_position_aligned');
+fprintf('✓ synchronized_tracking.mat\n');
+
+save('imaging_data_aligned', 'imaging_data_aligned');
+fprintf('✓ imaging_data_aligned.mat\n');
+
+%% Summary
+fprintf('\n=== SYNCHRONIZATION COMPLETE ===\n');
+fprintf('Total aligned frames: %d\n', length(x_position_aligned));
+fprintf('Imaging: %d ROIs × %d frames\n', ...
+        size(imaging_data_aligned, 1), size(imaging_data_aligned, 2));
+fprintf('Valid tracking: %.1f%%\n', ...
+        100*sum(~isnan(x_position_aligned))/length(x_position_aligned));
+
+cd(data_path);
+
+end
