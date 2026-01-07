@@ -1,0 +1,79 @@
+function execute_ffmpeg_batch(data_path)
+% EXECUTE_FFMPEG_BATCH Copy and execute FFmpeg batch file for timestamps
+%
+% Syntax:
+%   execute_ffmpeg_batch(data_path)
+%
+% Description:
+%   Copies FFmpeg batch file from functions/ folder to data directory and
+%   executes it to extract frame timestamps from video file.
+%
+% Input:
+%   data_path - Target directory for batch execution
+%
+% Output:
+%   Timestamp text file in data_path (parsed by parse_video_timestamps)
+%
+% Batch File Content:
+%   ffprobe -select_streams v:0 -show_entries frame=pts_time 
+%           -of csv=p=0 video.avi > timestamps.txt
+%
+% Notes:
+%   - Batch file must be located in functions/ folder
+%   - Terminates without error if batch file already exists in target
+%
+% See also: parse_video_timestamps
+
+% Batch file location (in functions folder)
+script_dir = fileparts(mfilename('fullpath'));
+source_batch = fullfile(script_dir, 'extract_timestamps.bat');
+
+% Validate source exists
+if ~exist(source_batch, 'file')
+    error('Batch file not found: %s', source_batch);
+end
+
+% Extract batch filename
+[~, batch_name, batch_ext] = fileparts(source_batch);
+batch_filename = [batch_name, batch_ext];
+
+% Destination path
+dest_batch = fullfile(data_path, batch_filename);
+
+% Check if already exists
+if exist(dest_batch, 'file')
+    fprintf('Batch file already exists in target. Skipping copy.\n');
+    % Execute anyway in case timestamps not yet extracted
+else
+    % Copy batch file
+    try
+        copyfile(source_batch, dest_batch);
+        fprintf('Copied batch file to data directory\n');
+    catch copy_error
+        error('Failed to copy batch file: %s', copy_error.message);
+    end
+end
+
+% Execute batch file
+try
+    current_dir = pwd;
+    cd(data_path);
+    
+    % Run batch file
+    [status, cmdout] = system(batch_filename);
+    
+    cd(current_dir);
+    
+    if status == 0
+        fprintf('✓ FFmpeg executed successfully\n');
+    else
+        warning('Batch file returned status %d', status);
+        fprintf('Output: %s\n', cmdout);
+    end
+    
+catch exec_error
+    cd(current_dir);
+    error('Failed to execute batch: %s', exec_error.message);
+end
+
+end
