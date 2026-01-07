@@ -1,0 +1,97 @@
+function [x_filtered, y_filtered] = filter_arena_coordinates(data_path, x_coords, y_coords)
+% FILTER_ARENA_COORDINATES Remove tracking points outside arena boundaries
+%
+% Syntax:
+%   [x_filtered, y_filtered] = filter_arena_coordinates(data_path, x_coords, y_coords)
+%
+% Description:
+%   Filters tracking coordinates by replacing points outside arena polygon
+%   with NaN values. Essential for removing tracking artifacts when animal
+%   detected outside arena or DLC makes erroneous predictions.
+%
+% Inputs:
+%   data_path - Directory containing arena_polygon.mat
+%   x_coords - Nx1 array of X coordinates (pixels)
+%   y_coords - Nx1 array of Y coordinates (pixels)
+%
+% Outputs:
+%   x_filtered - Nx1 array (NaN for points outside arena)
+%   y_filtered - Nx1 array (NaN for points outside arena)
+%
+% Algorithm:
+%   1. Load arena polygon definition
+%   2. Test each coordinate pair for polygon inclusion
+%   3. Replace points outside polygon with NaN
+%   4. Report filtering statistics
+%
+% Notes:
+%   - Points on polygon boundary are considered inside
+%   - NaN values in input are preserved
+%   - Warning if >20% points filtered
+%
+% See also: define_arena_boundary, inpolygon
+
+% Validate inputs
+if length(x_coords) ~= length(y_coords)
+    error('X and Y arrays must have same length');
+end
+
+% Load arena polygon
+cd(data_path);
+if ~exist('arena_polygon.mat', 'file')
+    error('arena_polygon.mat not found. Run define_arena_boundary first.');
+end
+
+load('arena_polygon.mat', 'arena_polygon');
+
+% Extract polygon vertices
+if isobject(arena_polygon)
+    poly_x = arena_polygon.Position(:, 1);
+    poly_y = arena_polygon.Position(:, 2);
+else
+    poly_x = arena_polygon(:, 1);
+    poly_y = arena_polygon(:, 2);
+end
+
+% Initialize output
+x_filtered = x_coords;
+y_filtered = y_coords;
+
+% Count initial NaN values
+initial_nan = sum(isnan(x_coords) | isnan(y_coords));
+
+% Test each point for polygon inclusion
+valid_indices = ~isnan(x_coords) & ~isnan(y_coords);
+points_to_test = find(valid_indices);
+
+% Batch test using inpolygon
+inside_arena = inpolygon(x_coords(valid_indices), y_coords(valid_indices), ...
+                        poly_x, poly_y);
+
+% Create full-length inside vector
+inside_full = false(size(x_coords));
+inside_full(points_to_test) = inside_arena;
+
+% Set outside points to NaN
+outside_arena = valid_indices & ~inside_full;
+x_filtered(outside_arena) = nan;
+y_filtered(outside_arena) = nan;
+
+% Statistics
+points_filtered = sum(outside_arena);
+total_valid = sum(valid_indices);
+final_nan = sum(isnan(x_filtered) | isnan(y_filtered));
+
+fprintf('=== ARENA FILTERING ===\n');
+fprintf('Initial NaN: %d (%.1f%%)\n', initial_nan, 100*initial_nan/length(x_coords));
+fprintf('Outside arena: %d (%.1f%% of valid)\n', points_filtered, 100*points_filtered/total_valid);
+fprintf('Final NaN: %d (%.1f%%)\n', final_nan, 100*final_nan/length(x_coords));
+fprintf('Valid remaining: %d (%.1f%%)\n', sum(~isnan(x_filtered)), ...
+        100*sum(~isnan(x_filtered))/length(x_coords));
+
+% Warning if too many filtered
+if points_filtered > 0.2 * total_valid
+    warning('More than 20%% filtered. Consider redrawing arena polygon.');
+end
+
+end
