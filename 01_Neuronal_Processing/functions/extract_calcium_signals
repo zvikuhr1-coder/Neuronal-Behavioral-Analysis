@@ -167,7 +167,7 @@ for trial = 1:num_trials
         % Channel 1 = blue (hemodynamic), Channel 2 = purple (calcium)
         save(sprintf('trial_%d_blue.mat', trial), 'signal_ch1', '-v7.3');
         save(sprintf('trial_%d_purple.mat', trial), 'signal_ch2', '-v7.3');
-        signal_corrected = signal_ch1 - signal_ch2;  # Blue - Purple
+        signal_corrected = signal_ch1 - signal_ch2;  % Blue - Purple
     end
     
     %% HEMODYNAMIC CORRECTION
