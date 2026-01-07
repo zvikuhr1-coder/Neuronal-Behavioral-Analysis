@@ -1,0 +1,73 @@
+function corrected_data = correct_tracking_outliers(tracking_data, window_size, deviation_threshold)
+% CORRECT_TRACKING_OUTLIERS Remove tracking outliers via interpolation
+%
+% Syntax:
+%   corrected_data = correct_tracking_outliers(tracking_data, window_size, deviation_threshold)
+%
+% Description:
+%   Detects and corrects outliers in 2D tracking data using moving average
+%   smoothing. Outliers are identified when points deviate excessively from
+%   smoothed trajectory, then replaced via linear interpolation.
+%
+% Inputs:
+%   tracking_data - 2xN matrix (row 1 = X coords, row 2 = Y coords)
+%   window_size - Moving average window (frames), typical: 15
+%   deviation_threshold - Max allowed deviation (pixels), typical: 15
+%
+% Output:
+%   corrected_data - 2xN matrix with outliers interpolated
+%
+% Algorithm:
+%   1. Compute moving average trajectory for X and Y
+%   2. Calculate deviation of each point from smoothed trajectory
+%   3. Mark points exceeding threshold as outliers
+%   4. Replace outliers via linear interpolation between valid neighbors
+%
+% Notes:
+%   - Window size should be odd for symmetric smoothing
+%   - Works best when outliers are sparse (<10% of frames)
+%
+% See also: movmean, interp1
+
+% Validate input
+if size(tracking_data, 1) ~= 2
+    error('tracking_data must be 2xN matrix (X and Y coordinates)');
+end
+
+num_frames = size(tracking_data, 2);
+corrected_data = tracking_data;
+
+% Compute smoothed trajectory
+smooth_x = movmean(tracking_data(1, :), window_size);
+smooth_y = movmean(tracking_data(2, :), window_size);
+
+% Calculate deviations
+deviations_x = abs(tracking_data(1, :) - smooth_x);
+deviations_y = abs(tracking_data(2, :) - smooth_y);
+
+% Identify outliers
+outliers = (deviations_x > deviation_threshold) | (deviations_y > deviation_threshold);
+
+fprintf('Outliers detected: %d (%.1f%%)\n', sum(outliers), 100*sum(outliers)/num_frames);
+
+% Correct each outlier via interpolation
+for i = 1:num_frames
+    if outliers(i)
+        % Find nearest valid point before
+        prev_idx = find(~outliers(1:i-1), 1, 'last');
+        
+        % Find nearest valid point after
+        next_idx = find(~outliers(i+1:end), 1, 'first') + i;
+        
+        % Handle edge cases
+        if isempty(prev_idx), prev_idx = 1; end
+        if isempty(next_idx), next_idx = num_frames; end
+        
+        % Linear interpolation
+        weight = (i - prev_idx) / (next_idx - prev_idx);
+        corrected_data(:, i) = corrected_data(:, prev_idx) + ...
+                               weight * (corrected_data(:, next_idx) - corrected_data(:, prev_idx));
+    end
+end
+
+end
