@@ -244,15 +244,11 @@ Outliers detected: 48 (0.8%)
 
 ```bibtex
 @software{behavioral_pipeline,
-  author = {[Your Name]},
+  author = {[Zvi Kuhr]},
   title = {Behavioral Tracking and Synchronization Pipeline},
   year = {2025},
-  url = {https://github.com/[username]/behavioral-pipeline}
+  url = {https://github.com/zvikuhr1-coder/behavioral-pipeline}
 }
 ```
 
----
 
-## License
-
-[Specify License]
