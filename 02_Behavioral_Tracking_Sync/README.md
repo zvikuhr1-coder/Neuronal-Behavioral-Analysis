@@ -46,7 +46,8 @@ Samples 150 random frames from video and computes pixel-wise average for arena v
 - `video_dimensions.mat` - Video height and width (pixels)
 
 <p align="center">
-  <img src="assets/background_frame_example.png" alt="Background Frame" width="500"/>
+  <img width="895" height="658" alt="image" src="https://github.com/user-attachments/assets/f6fd6366-a724-43e9-a9ce-5b253d1bd3a0" />
+
   <br>
   <em>Figure 1: Average background frame showing experimental arena</em>
 </p>
@@ -62,7 +63,8 @@ Interactive polygon drawing to define valid tracking region. Points outside poly
 - `arena_polygon.mat` - Polygon ROI object with boundary coordinates
 
 <p align="center">
-  <img src="assets/arena_definition_example.png" alt="Arena Definition" width="500"/>
+  <img width="1914" height="1040" alt="image" src="https://github.com/user-attachments/assets/eb5849f3-bc28-434e-820d-22f91723228a" />
+
   <br>
   <em>Figure 2: Interactive arena boundary definition with polygon vertices</em>
 </p>
@@ -93,13 +95,15 @@ Identifies trial start frames via LED indicator change point detection. First tr
 - `processed/trial_starts.mat` - Nx1 array of trial start frame indices
 
 <p align="center">
-  <img src="assets/led_detection_example.png" alt="LED Detection" width="700"/>
+  <img width="1920" height="1042" alt="image" src="https://github.com/user-attachments/assets/6007d281-ee4b-4fd9-97f6-130f3540946c" />
+
   <br>
   <em>Figure 3: LED intensity time series with detected trial start (red marker)</em>
 </p>
 
 <p align="center">
-  <img src="assets/trial_verification_example.png" alt="Trial Verification" width="700"/>
+  <img width="556" height="497" alt="image" src="https://github.com/user-attachments/assets/8d4c755f-00d5-4a2f-8686-dcc780c2004e" />
+
   <br>
   <em>Figure 4: Trial verification window showing ±20s around detected start</em>
 </p>
@@ -127,15 +131,18 @@ Aligns DLC tracking coordinates with calcium imaging frames through temporal map
 - `processed/interpolation_markers.mat` - NaN markers for poorly aligned frames
 
 <p align="center">
-  <img src="assets/tracking_correction_example.png" alt="Tracking Correction" width="900"/>
+  <img width="2006" height="1146" alt="image" src="https://github.com/user-attachments/assets/30467c9b-159c-4c4f-8aeb-3794a6373ac4" />
+
   <br>
   <em>Figure 5: Original tracking with outliers (left) vs. corrected tracking (right)</em>
 </p>
 
 <p align="center">
-  <img src="assets/synchronized_trajectory_example.png" alt="Complete Trajectory" width="500"/>
+  
   <br>
-  <em>Figure 6: Complete synchronized trajectory across all trials with time-coded color gradient</em>
+  <img width="800" height="514" alt="trimmed" src="https://github.com/user-attachments/assets/a476d886-08bb-4776-b82f-1000c5ea15d6" />
+
+  <em>Figure 6: Animation with syncronization of tracking and neuronal signal in BLA 
 </p>
 
 ---
