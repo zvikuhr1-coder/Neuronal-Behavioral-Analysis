@@ -33,14 +33,11 @@ if ~exist(processed_path, 'dir')
     mkdir(processed_path);
 end
 
-cd(data_path);
-
 % Locate timestamp text file
-txt_files = dir('*.txt');
+txt_files = dir(fullfile(data_path, '*.txt'));
 if isempty(txt_files)
     error('No timestamp file found. Run execute_ffmpeg_batch first.');
 end
-
 txt_file = fullfile(txt_files(1).folder, txt_files(1).name);
 fprintf('Reading: %s\n', txt_files(1).name);
 
@@ -48,44 +45,101 @@ fprintf('Reading: %s\n', txt_files(1).name);
 file_content = fileread(txt_file);
 lines = strsplit(file_content, '\n');
 
+% Debug: Show first few lines
+fprintf('\nFirst 5 lines of file:\n');
+for i = 1:min(5, length(lines))
+    fprintf('  Line %d: "%s"\n', i, lines{i});
+end
+fprintf('\n');
+
 % Extract timestamps
 video_timestamps = [];
 for i = 1:length(lines)
-    line = lines{i};
-    if contains(line, 'pts_time:')
-        % Extract numeric value after 'pts_time:'
-        token = regexp(line, 'pts_time:([\d.]+)', 'tokens');
-        if ~isempty(token)
-            video_timestamps = [video_timestamps; str2double(token{1})];
+    line = strtrim(lines{i});
+    
+    if isempty(line)
+        continue;
+    end
+    
+    % Try multiple extraction patterns
+    timestamp = [];
+    
+    % Pattern 1: "frame,0.000000" (CSV format)
+    tokens = regexp(line, 'frame,\s*([\d.]+)', 'tokens');
+    if ~isempty(tokens)
+        timestamp = str2double(tokens{1}{1});
+    end
+    
+    % Pattern 2: "pts_time:0.000000"
+    if isempty(timestamp) || isnan(timestamp)
+        tokens = regexp(line, 'pts_time:\s*([\d.]+)', 'tokens');
+        if ~isempty(tokens)
+            timestamp = str2double(tokens{1}{1});
         end
+    end
+    
+    % Pattern 3: "best_effort_timestamp_time:0.000000"
+    if isempty(timestamp) || isnan(timestamp)
+        tokens = regexp(line, 'best_effort_timestamp_time:\s*([\d.]+)', 'tokens');
+        if ~isempty(tokens)
+            timestamp = str2double(tokens{1}{1});
+        end
+    end
+    
+    % Pattern 4: Just a number on its own line
+    if isempty(timestamp) || isnan(timestamp)
+        tokens = regexp(line, '^([\d.]+)$', 'tokens');
+        if ~isempty(tokens)
+            timestamp = str2double(tokens{1}{1});
+        end
+    end
+    
+    % Pattern 5: Multiple comma-separated values (take last one)
+    if isempty(timestamp) || isnan(timestamp)
+        parts = strsplit(line, ',');
+        for j = length(parts):-1:1
+            val = str2double(strtrim(parts{j}));
+            if ~isnan(val)
+                timestamp = val;
+                break;
+            end
+        end
+    end
+    
+    % Add valid timestamp
+    if ~isempty(timestamp) && ~isnan(timestamp)
+        video_timestamps = [video_timestamps; timestamp];
     end
 end
 
 % Validate timestamps
 if isempty(video_timestamps)
-    error('No timestamps extracted from file');
+    error(['No timestamps extracted from file.\n' ...
+           'Please check the file format. Expected formats:\n' ...
+           '  - "frame,0.000000"\n' ...
+           '  - "pts_time:0.000000"\n' ...
+           '  - Plain numbers, one per line']);
 end
-
 fprintf('Extracted %d timestamps\n', length(video_timestamps));
 
 % Check monotonicity
-time_diffs = diff(video_timestamps);
-if any(time_diffs < 0)
-    warning('Timestamps not monotonically increasing');
+if length(video_timestamps) > 1
+    time_diffs = diff(video_timestamps);
+    if any(time_diffs < 0)
+        warning('Timestamps not monotonically increasing');
+    end
+    
+    % Statistics
+    duration = video_timestamps(end) - video_timestamps(1);
+    median_fps = 1 / median(time_diffs);
+    fprintf('Duration: %.2f s (%.2f min)\n', duration, duration / 60);
+    fprintf('Median FPS: %.2f Hz\n', median_fps);
+else
+    fprintf('Only one timestamp found, cannot compute statistics\n');
 end
 
-% Statistics
-duration = video_timestamps(end) - video_timestamps(1);
-median_fps = 1 / median(time_diffs);
-
-fprintf('Duration: %.2f s (%.2f min)\n', duration, duration / 60);
-fprintf('Median FPS: %.2f Hz\n', median_fps);
-
 % Save to processed folder
-cd(processed_path);
-save('video_timestamps.mat', 'video_timestamps');
+save(fullfile(processed_path, 'video_timestamps.mat'), 'video_timestamps');
 fprintf('✓ Saved: processed/video_timestamps.mat\n');
-
-cd(data_path);
 
 end
