@@ -297,18 +297,6 @@ Solution: Click closer to trace line (within 0.05 ΔF/F)
   - Aim for the center of the trace line
 ```
 
----
-
-## Citation
-
-```bibtex
-@software{neuronal_qc_pipeline,
-  author = {Zvi Kuhr},
-  title = {Neuronal Trace Quality Control Pipeline for Fiber Photometry},
-  year = {2025},
-  url = {https://github.com/zvikuhr1-coder/neuronal-qc-pipeline}
-}
-```
 
 
 
