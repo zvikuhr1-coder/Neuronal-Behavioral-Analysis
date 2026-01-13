@@ -264,8 +264,6 @@ BASELINE_OFFSET = 1;       % Baseline subtraction constant
 - `generate_calcium_traces.m` - Synthetic trace generator (embedded)
 - `generate_laser_signals.m` - Synthetic blue/purple generator (embedded)
 
-**Optional Function:**
-- `normalize_neuronal_data_to_grand_median.m` - Cross-session normalization (commented out in main script)
 
 ---
 
