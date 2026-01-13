@@ -198,12 +198,7 @@ Median is used instead of mean to provide robust baseline estimation resistant t
 **Chamber Masking:**
 Excluding pixels outside the recording chamber prevents edge artifacts and background noise from contaminating ROI signals.
 
-## Citation
 
-```bibtex
-@software{behavioral_pipeline,
-  author = {[Zvi Kuhr]},
-  title = {Behavioral Tracking and Synchronization Pipeline},
   year = {2025},
   url = {https://github.com/zvikuhr1-coder/behavioral-pipeline}
 }
