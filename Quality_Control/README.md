@@ -297,11 +297,3 @@ Solution: Click closer to trace line (within 0.05 ΔF/F)
   - Aim for the center of the trace line
 ```
 
-
-
-
-
-
-## Contact
-
-For questions or issues, please open an issue on GitHub or contact [your contact information].
