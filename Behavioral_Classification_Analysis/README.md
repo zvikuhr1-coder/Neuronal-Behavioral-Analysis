@@ -329,15 +329,7 @@ Actual Novel    TP      FN
    - Decode object preference strength
 
 
----
 
-## Citation
 
-```bibtex
-@software{behavioral_pipeline,
-  author = {[Zvi Kuhr]},
-  title = {Behavioral Tracking and Synchronization Pipeline},
-  year = {2025},
-  url = {https://github.com/zvikuhr1-coder/behavioral-pipeline}
-}
+
 ```
