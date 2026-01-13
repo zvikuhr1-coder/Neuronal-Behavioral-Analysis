@@ -193,21 +193,6 @@ cd ../04_Neural_Classification
 
 ---
 
-## Example Results
-
-### Behavioral Synchronization
-![Tracking Synchronization](02_Behavioral_Synchronization/figures/tracking_sync_example.png)
-*Frame-accurate alignment of neural activity (BLA region) with mouse position during object investigation.*
-
-### Neural Decoding
-![Classification Performance](04_Neural_Classification/figures/classification_summary.png)
-*Multi-model comparison showing 70-85% accuracy in predicting object novelty from distributed brain activity.*
-
-### Feature Importance
-![Brain Regions](04_Neural_Classification/figures/feature_importance.png)
-*Hippocampus (CA1, CA3, DG) and perirhinal cortex (PRh) show highest predictive power for object recognition memory.*
-
----
 
 ## Key Publications & Methods
 
@@ -264,20 +249,14 @@ If you use this pipeline in your research, please cite:
 }
 ```
 
----
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
 
 ## Contact
 
-**Author:** [Your Name]  
-**Email:** your.email@domain.com  
-**GitHub:** [@yourusername](https://github.com/yourusername)  
-**LinkedIn:** [Your LinkedIn](https://linkedin.com/in/yourprofile)
+**Author:** [Zvi Kuhr]  
+**Email:** zvikuhr1@gmail.com
+**GitHub:** [@zvikuhr1-coder](https://github.com/yourusername)  
+**LinkedIn:** [zvikuhr](https://linkedin.com/in/yourprofile)
 
 For questions, bug reports, or collaboration opportunities, please [open an issue](https://github.com/yourusername/Neuronal-Behavioral-Analysis/issues).
 
