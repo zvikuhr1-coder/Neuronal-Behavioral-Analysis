@@ -1,0 +1,458 @@
+%% Mouse Neural Activity Classification - DEMO VERSION
+% This demo showcases the classification pipeline structure and visualization
+% using synthetic neural data
+% 
+% Pipeline Overview:
+% 1. Generate synthetic neural activity data for multiple mice
+% 2. Create training/testing splits for individual mice
+% 3. Build combined dataset from all mice
+% 4. Train and compare multiple classification models
+% 5. Visualize results and feature importance
+%
+% Note: Data is randomly generated for demonstration purposes only
+
+clear
+clc
+
+%% CONFIGURATION
+fprintf('=== MOUSE NEURAL ACTIVITY CLASSIFICATION DEMO ===\n');
+fprintf('Generating synthetic data...\n\n');
+
+% Brain region definitions (37 regions)
+brain_regions = {'S1BF','CPU','S1BF(2)','GP','M1','Re','Re(2)',...
+    'BLA','BLA(2)','S1BF(3)','CeM','RT','S1BF(4)','VPM','CA3','CA3(2)','CA1','DG','Re(3)',...
+    'PRh','DLEnt','DIEnt','VIEnt','VIEnt(2)','DG(2)','Ment','DG(3)','Post','RSD',...
+    'DLEnt(2)','Ment(2)','TEA','CEnt','CEnt(2)','V1','Prs','Post(2)'};
+
+num_regions = length(brain_regions);
+
+% Mouse definitions
+mice = {'One','Two','Three','Four','Five','Six'};
+num_mice = length(mice);
+
+% Data generation parameters
+contacts_per_mouse = 100;  % Number of object investigation contacts per mouse
+train_ratio = 0.75;        % 75% training, 25% testing
+safety_gap = 5;            % Gap between train/test to avoid temporal leakage
+
+%% STEP 1: GENERATE SYNTHETIC NEURAL DATA
+fprintf('=== STEP 1: SYNTHETIC DATA GENERATION ===\n');
+
+MOUSE_DATA = struct();
+rng(42);  % Set seed for reproducibility
+
+for m = 1:num_mice
+    mouse_name = mice{m};
+    
+    % Generate completely random neural activity patterns
+    % Both novel and familiar have IDENTICAL distributions (no real signal)
+    novel_activation = randn(num_regions, contacts_per_mouse/2);
+    familiar_activation = randn(num_regions, contacts_per_mouse/2);
+    
+    % Add mouse-specific random noise (same for both conditions)
+    mouse_bias = randn(num_regions, 1) * 0.2;
+    novel_activation = novel_activation + mouse_bias;
+    familiar_activation = familiar_activation + mouse_bias;
+    
+    % Store data
+    MOUSE_DATA.(mouse_name).novel_frames = novel_activation;
+    MOUSE_DATA.(mouse_name).regular_frames = familiar_activation;
+    
+    fprintf('  %s: Novel=%d, Familiar=%d contacts\n', ...
+        mouse_name, size(novel_activation, 2), size(familiar_activation, 2));
+end
+
+%% STEP 2: CREATE INDIVIDUAL MOUSE DATASETS
+fprintf('\n=== STEP 2: INDIVIDUAL MOUSE TRAINING/TEST SPLITS ===\n');
+
+INDIVIDUAL_TABLES = struct();
+
+for m = 1:num_mice
+    mouse_name = mice{m};
+    fprintf('\nProcessing mouse: %s\n', mouse_name);
+    
+    % Get mouse data (transpose: rows = contacts, cols = regions)
+    novel_features = MOUSE_DATA.(mouse_name).novel_frames';
+    familiar_features = MOUSE_DATA.(mouse_name).regular_frames';
+    
+    % Combine features and create labels
+    X = [novel_features; familiar_features];
+    novel_labels = repmat({'Novel'}, size(novel_features, 1), 1);
+    familiar_labels = repmat({'Familiar'}, size(familiar_features, 1), 1);
+    Y = categorical([novel_labels; familiar_labels]);
+    
+    % Temporal split with safety gap
+    novel_count = sum(Y == 'Novel');
+    familiar_count = sum(Y == 'Familiar');
+    
+    % Calculate split indices
+    novel_train_end = floor(novel_count * train_ratio);
+    novel_test_start = min(novel_train_end + safety_gap + 1, novel_count + 1);
+    
+    familiar_train_end = floor(familiar_count * train_ratio);
+    familiar_test_start = min(familiar_train_end + safety_gap + 1, familiar_count + 1);
+    
+    % Create train/test indices
+    novel_train_idx = 1:novel_train_end;
+    familiar_offset = novel_count;
+    familiar_train_idx = (familiar_offset + 1):(familiar_offset + familiar_train_end);
+    train_idx = [novel_train_idx, familiar_train_idx];
+    
+    novel_test_idx = novel_test_start:novel_count;
+    familiar_test_idx = (familiar_offset + familiar_test_start):(familiar_offset + familiar_count);
+    test_idx = [novel_test_idx, familiar_test_idx];
+    
+    % Split data
+    X_train = X(train_idx, :);
+    Y_train = Y(train_idx);
+    X_test = X(test_idx, :);
+    Y_test = Y(test_idx);
+    
+    % Standardization (z-score normalization)
+    train_mean = mean(X_train, 1);
+    train_std = std(X_train, 0, 1);
+    train_std(train_std == 0) = 1;  % Avoid division by zero
+    
+    X_train_std = (X_train - train_mean) ./ train_std;
+    X_test_std = (X_test - train_mean) ./ train_std;
+    
+    % Create tables
+    train_table = array2table(X_train_std);
+    train_table.Properties.VariableNames = brain_regions;
+    train_table.ObjectType = Y_train;
+    
+    test_table = array2table(X_test_std);
+    test_table.Properties.VariableNames = brain_regions;
+    test_table.ObjectType = Y_test;
+    
+    % Store in structure
+    INDIVIDUAL_TABLES.(mouse_name).train = train_table;
+    INDIVIDUAL_TABLES.(mouse_name).test = test_table;
+    INDIVIDUAL_TABLES.(mouse_name).normalization.mean = train_mean;
+    INDIVIDUAL_TABLES.(mouse_name).normalization.std = train_std;
+    
+    fprintf('  Training: %d contacts (Novel=%d, Familiar=%d)\n', ...
+        height(train_table), sum(Y_train == 'Novel'), sum(Y_train == 'Familiar'));
+    fprintf('  Testing:  %d contacts (Novel=%d, Familiar=%d)\n', ...
+        height(test_table), sum(Y_test == 'Novel'), sum(Y_test == 'Familiar'));
+end
+
+%% STEP 3: CREATE COMBINED DATASET (ALL MICE)
+fprintf('\n=== STEP 3: COMBINED DATASET FROM ALL MICE ===\n');
+
+all_train_tables = [];
+all_test_tables = [];
+
+for m = 1:num_mice
+    mouse_name = mice{m};
+    all_train_tables = [all_train_tables; INDIVIDUAL_TABLES.(mouse_name).train];
+    all_test_tables = [all_test_tables; INDIVIDUAL_TABLES.(mouse_name).test];
+end
+
+COMBINED_TABLES.train = all_train_tables;
+COMBINED_TABLES.test = all_test_tables;
+
+fprintf('Combined Training: %d contacts (Novel=%d, Familiar=%d)\n', ...
+    height(all_train_tables), ...
+    sum(all_train_tables.ObjectType == 'Novel'), ...
+    sum(all_train_tables.ObjectType == 'Familiar'));
+fprintf('Combined Testing:  %d contacts (Novel=%d, Familiar=%d)\n', ...
+    height(all_test_tables), ...
+    sum(all_test_tables.ObjectType == 'Novel'), ...
+    sum(all_test_tables.ObjectType == 'Familiar'));
+
+%% STEP 4: CLASSIFICATION MODEL TRAINING & COMPARISON
+fprintf('\n=== STEP 4: CLASSIFICATION MODELS ===\n');
+
+% Define models
+models = {
+    'Linear Discriminant', 'LDA';
+    'Random Forest', 'RF';
+    'K-Nearest Neighbors', 'KNN';
+    'Linear SVM', 'SVM'
+};
+
+RESULTS = struct();
+FEATURE_IMPORTANCE = struct();
+
+%% Train models for each mouse
+for m = 1:num_mice
+    mouse_name = mice{m};
+    fprintf('\n--- Mouse: %s ---\n', mouse_name);
+    
+    train_data = INDIVIDUAL_TABLES.(mouse_name).train;
+    test_data = INDIVIDUAL_TABLES.(mouse_name).test;
+    
+    X_train = train_data{:, 1:end-1};
+    Y_train = train_data.ObjectType;
+    X_test = test_data{:, 1:end-1};
+    Y_test = test_data.ObjectType;
+    
+    RESULTS.(mouse_name) = struct();
+    FEATURE_IMPORTANCE.(mouse_name) = struct();
+    
+    % Model 1: Linear Discriminant Analysis
+    try
+        mdl_lda = fitcdiscr(X_train, Y_train, 'DiscrimType', 'linear');
+        Y_pred_lda = predict(mdl_lda, X_test);
+        acc_lda = sum(Y_pred_lda == Y_test) / length(Y_test) * 100;
+        
+        RESULTS.(mouse_name).LDA.accuracy = acc_lda;
+        RESULTS.(mouse_name).LDA.predictions = Y_pred_lda;
+        RESULTS.(mouse_name).LDA.model = mdl_lda;
+        
+        % Feature importance from coefficients
+        if ~isempty(mdl_lda.Coeffs)
+            coeff_fields = fieldnames(mdl_lda.Coeffs);
+            coeffs = mdl_lda.Coeffs.(coeff_fields{1});
+            if isfield(coeffs, 'Linear')
+                FEATURE_IMPORTANCE.(mouse_name).LDA = abs(coeffs.Linear);
+            end
+        end
+        
+        fprintf('  LDA Accuracy: %.2f%%\n', acc_lda);
+    catch ME
+        fprintf('  LDA Error: %s\n', ME.message);
+    end
+    
+    % Model 2: Random Forest
+    try
+        mdl_rf = TreeBagger(100, X_train, Y_train, ...
+            'Method', 'classification', 'OOBPredictorImportance', 'on');
+        [Y_pred_rf_cell, ~] = predict(mdl_rf, X_test);
+        Y_pred_rf = categorical(Y_pred_rf_cell);
+        acc_rf = sum(Y_pred_rf == Y_test) / length(Y_test) * 100;
+        
+        RESULTS.(mouse_name).RF.accuracy = acc_rf;
+        RESULTS.(mouse_name).RF.predictions = Y_pred_rf;
+        RESULTS.(mouse_name).RF.model = mdl_rf;
+        FEATURE_IMPORTANCE.(mouse_name).RF = mdl_rf.OOBPermutedPredictorDeltaError;
+        
+        fprintf('  Random Forest Accuracy: %.2f%%\n', acc_rf);
+    catch ME
+        fprintf('  RF Error: %s\n', ME.message);
+    end
+    
+    % Model 3: K-Nearest Neighbors
+    try
+        mdl_knn = fitcknn(X_train, Y_train, 'NumNeighbors', 10);
+        Y_pred_knn = predict(mdl_knn, X_test);
+        acc_knn = sum(Y_pred_knn == Y_test) / length(Y_test) * 100;
+        
+        RESULTS.(mouse_name).KNN.accuracy = acc_knn;
+        RESULTS.(mouse_name).KNN.predictions = Y_pred_knn;
+        RESULTS.(mouse_name).KNN.model = mdl_knn;
+        
+        fprintf('  KNN Accuracy: %.2f%%\n', acc_knn);
+    catch ME
+        fprintf('  KNN Error: %s\n', ME.message);
+    end
+    
+    % Model 4: Linear SVM
+    try
+        mdl_svm = fitcsvm(X_train, Y_train, 'KernelFunction', 'linear', 'Standardize', false);
+        Y_pred_svm = predict(mdl_svm, X_test);
+        acc_svm = sum(Y_pred_svm == Y_test) / length(Y_test) * 100;
+        
+        RESULTS.(mouse_name).SVM.accuracy = acc_svm;
+        RESULTS.(mouse_name).SVM.predictions = Y_pred_svm;
+        RESULTS.(mouse_name).SVM.model = mdl_svm;
+        FEATURE_IMPORTANCE.(mouse_name).SVM = abs(mdl_svm.Beta);
+        
+        fprintf('  Linear SVM Accuracy: %.2f%%\n', acc_svm);
+    catch ME
+        fprintf('  SVM Error: %s\n', ME.message);
+    end
+end
+
+%% STEP 5: VISUALIZATION
+fprintf('\n=== STEP 5: RESULTS VISUALIZATION ===\n');
+
+%% Figure 1: Individual Mouse Performance
+for m = 1:num_mice
+    mouse_name = mice{m};
+    
+    fig = figure('Position', [100, 100, 1400, 900]);
+    
+    % Collect accuracies
+    model_names = {'LDA', 'RF', 'KNN', 'SVM'};
+    model_labels = {'Linear Discriminant', 'Random Forest', 'K-NN', 'Linear SVM'};
+    accuracies = zeros(1, 4);
+    
+    for i = 1:4
+        if isfield(RESULTS.(mouse_name), model_names{i})
+            accuracies(i) = RESULTS.(mouse_name).(model_names{i}).accuracy;
+        end
+    end
+    
+    % Subplot 1: Accuracy Comparison
+    subplot(2, 3, 1);
+    bar(accuracies, 'FaceColor', [0.2, 0.6, 0.8]);
+    set(gca, 'XTickLabel', model_labels, 'XTickLabelRotation', 45);
+    ylabel('Accuracy (%)');
+    title('Model Accuracy Comparison');
+    ylim([0, 100]);
+    grid on;
+    
+    for i = 1:length(accuracies)
+        text(i, accuracies(i) + 3, sprintf('%.1f%%', accuracies(i)), ...
+            'HorizontalAlignment', 'center', 'FontWeight', 'bold');
+    end
+    
+    % Subplot 2: LDA Feature Importance
+    subplot(2, 3, 2);
+    if isfield(FEATURE_IMPORTANCE.(mouse_name), 'LDA')
+        imp = FEATURE_IMPORTANCE.(mouse_name).LDA;
+        [~, idx] = sort(imp, 'descend');
+        top_n = min(15, length(imp));
+        
+        barh(imp(idx(1:top_n)));
+        set(gca, 'YTickLabel', brain_regions(idx(1:top_n)), 'YDir', 'reverse');
+        xlabel('|Coefficient|');
+        title('LDA - Top Brain Regions');
+        grid on;
+    end
+    
+    % Subplot 3: Random Forest Feature Importance
+    subplot(2, 3, 3);
+    if isfield(FEATURE_IMPORTANCE.(mouse_name), 'RF')
+        imp = FEATURE_IMPORTANCE.(mouse_name).RF;
+        [~, idx] = sort(imp, 'descend');
+        top_n = min(15, length(imp));
+        
+        barh(imp(idx(1:top_n)));
+        set(gca, 'YTickLabel', brain_regions(idx(1:top_n)), 'YDir', 'reverse');
+        xlabel('OOB Error Increase');
+        title('Random Forest - Top Brain Regions');
+        grid on;
+    end
+    
+    % Subplot 4: SVM Feature Importance
+    subplot(2, 3, 4);
+    if isfield(FEATURE_IMPORTANCE.(mouse_name), 'SVM')
+        imp = FEATURE_IMPORTANCE.(mouse_name).SVM;
+        [~, idx] = sort(imp, 'descend');
+        top_n = min(15, length(imp));
+        
+        barh(imp(idx(1:top_n)));
+        set(gca, 'YTickLabel', brain_regions(idx(1:top_n)), 'YDir', 'reverse');
+        xlabel('|Weight|');
+        title('Linear SVM - Top Brain Regions');
+        grid on;
+    end
+    
+    % Subplot 5: Confusion Matrix (Best Model)
+    subplot(2, 3, 5);
+    [~, best_idx] = max(accuracies);
+    best_model = model_names{best_idx};
+    
+    if isfield(RESULTS.(mouse_name), best_model)
+        Y_true = INDIVIDUAL_TABLES.(mouse_name).test.ObjectType;
+        Y_pred = RESULTS.(mouse_name).(best_model).predictions;
+        
+        cm = confusionmat(Y_true, Y_pred);
+        imagesc(cm);
+        colormap(gca, flipud(gray));
+        colorbar;
+        
+        % Add text
+        for i = 1:size(cm, 1)
+            for j = 1:size(cm, 2)
+                text(j, i, num2str(cm(i,j)), ...
+                    'HorizontalAlignment', 'center', ...
+                    'Color', 'black', 'FontWeight', 'bold', 'FontSize', 12);
+            end
+        end
+        
+        title(sprintf('Confusion Matrix - %s', model_labels{best_idx}));
+        xlabel('Predicted');
+        ylabel('Actual');
+        labels = categories(Y_true);
+        set(gca, 'XTick', 1:length(labels), 'XTickLabel', labels);
+        set(gca, 'YTick', 1:length(labels), 'YTickLabel', labels);
+    end
+    
+    % Subplot 6: Training Data Distribution
+    subplot(2, 3, 6);
+    train_novel = sum(INDIVIDUAL_TABLES.(mouse_name).train.ObjectType == 'Novel');
+    train_familiar = sum(INDIVIDUAL_TABLES.(mouse_name).train.ObjectType == 'Familiar');
+    test_novel = sum(INDIVIDUAL_TABLES.(mouse_name).test.ObjectType == 'Novel');
+    test_familiar = sum(INDIVIDUAL_TABLES.(mouse_name).test.ObjectType == 'Familiar');
+    
+    data_dist = [train_novel, train_familiar; test_novel, test_familiar];
+    bar(data_dist, 'grouped');
+    set(gca, 'XTickLabel', {'Training', 'Testing'});
+    ylabel('Number of Contacts');
+    title('Data Distribution');
+    legend({'Novel', 'Familiar'}, 'Location', 'best');
+    grid on;
+    
+    sgtitle(sprintf('Classification Analysis - Mouse: %s', mouse_name), ...
+        'FontSize', 16, 'FontWeight', 'bold');
+    
+    fprintf('  Figure created for %s\n', mouse_name);
+end
+
+%% Figure 2: Cross-Mouse Summary
+fig_summary = figure('Position', [200, 200, 1400, 800]);
+
+% Prepare summary data
+all_accuracies = [];
+for m = 1:num_mice
+    mouse_name = mice{m};
+    mouse_accs = [];
+    
+    for i = 1:4
+        model_name = model_names{i};
+        if isfield(RESULTS.(mouse_name), model_name)
+            mouse_accs = [mouse_accs, RESULTS.(mouse_name).(model_name).accuracy];
+        else
+            mouse_accs = [mouse_accs, 0];
+        end
+    end
+    all_accuracies = [all_accuracies; mouse_accs];
+end
+
+% Plot grouped bar chart
+subplot(1, 2, 1);
+bar(all_accuracies', 'grouped');
+set(gca, 'XTickLabel', model_labels, 'XTickLabelRotation', 45);
+ylabel('Accuracy (%)');
+xlabel('Classification Models');
+title('Model Performance Across All Mice');
+legend(mice, 'Location', 'best');
+ylim([0, 100]);
+grid on;
+
+% Average performance
+subplot(1, 2, 2);
+avg_accuracies = mean(all_accuracies, 1);
+bar(avg_accuracies, 'FaceColor', [0.4, 0.7, 0.4]);
+set(gca, 'XTickLabel', model_labels, 'XTickLabelRotation', 45);
+ylabel('Average Accuracy (%)');
+title('Average Model Performance');
+ylim([0, 100]);
+grid on;
+
+for i = 1:length(avg_accuracies)
+    text(i, avg_accuracies(i) + 3, sprintf('%.1f%%', avg_accuracies(i)), ...
+        'HorizontalAlignment', 'center', 'FontWeight', 'bold');
+end
+
+sgtitle('Cross-Mouse Classification Summary', 'FontSize', 16, 'FontWeight', 'bold');
+
+%% FINAL SUMMARY
+fprintf('\n=== PIPELINE COMPLETE ===\n');
+fprintf('\nDemo showcases:\n');
+fprintf('  ✓ Synthetic neural data generation for %d mice\n', num_mice);
+fprintf('  ✓ Individual mouse training/testing splits\n');
+fprintf('  ✓ Combined multi-mouse dataset\n');
+fprintf('  ✓ Four classification models (LDA, RF, KNN, SVM)\n');
+fprintf('  ✓ Feature importance analysis\n');
+fprintf('  ✓ Comprehensive visualization\n');
+fprintf('\nNote: Accuracies ~50%% expected (random labels)\n');
+fprintf('\nAvailable variables:\n');
+fprintf('  - INDIVIDUAL_TABLES: Per-mouse datasets\n');
+fprintf('  - COMBINED_TABLES: All mice combined\n');
+fprintf('  - RESULTS: Model performance and predictions\n');
+fprintf('  - FEATURE_IMPORTANCE: Brain region importance scores\n');
