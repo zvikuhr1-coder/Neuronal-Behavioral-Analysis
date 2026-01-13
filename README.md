@@ -6,7 +6,7 @@ A comprehensive MATLAB pipeline for integrating multi-region calcium imaging wit
 
 ## Overview
 
-This repository provides an end-to-end analysis framework for studying the neural basis of behavior through synchronized calcium imaging and pose tracking. The pipeline processes raw fiber photometry recordings from 48 simultaneous brain regions, aligns them with DeepLabCut behavioral tracking, performs quality control, and applies machine learning to decode behavioral states from distributed neural activity patterns.
+This repository provides an end-to-end analysis framework for studying the neural basis of behavior through synchronized calcium imaging and pose tracking. The pipeline processes raw fiber photometry recordings from 37 simultaneous brain regions, aligns them with DeepLabCut behavioral tracking, performs quality control, and applies machine learning to decode behavioral states from distributed neural activity patterns.
 
 **Key Capabilities:**
 - **Large-scale neural recording**: Dual-wavelength fiber photometry from 37 brain regions with automated hemodynamic correction
@@ -117,7 +117,7 @@ Multi-algorithm machine learning pipeline to decode behavioral states (novel vs.
 ## Technical Highlights
 
 ### Data Scale
-- **Spatial**: 48 simultaneous recording sites across cortical and subcortical regions
+- **Spatial**: 37 simultaneous recording sites across cortical and subcortical regions
 - **Temporal**: 10Hz imaging synchronized with 20Hz behavioral tracking
 - **Sessions**: Multi-session concatenation with mouse-specific normalization
 - **Analysis**: 37 brain regions × 100+ behavioral events per mouse
@@ -152,62 +152,6 @@ Multi-algorithm machine learning pipeline to decode behavioral states (novel vs.
 **Hardware:**
 - Hamamatsu C13440/C11440 cameras for fiber photometry acquisition
 
----
-
-## Quick Start
-
-### 1. Clone Repository
-```bash
-git clone https://github.com/yourusername/Neuronal-Behavioral-Analysis.git
-cd Neuronal-Behavioral-Analysis
-```
-
-### 2. Run Demo (No Data Required)
-```matlab
-% Test neural classification pipeline with synthetic data
-cd 04_Neural_Classification
-Classification_Demo
-```
-
-### 3. Process Real Data
-```matlab
-% Set your data path
-data_path = 'C:\Path\To\Your\Experiment';
-
-% Module 1: Extract neural signals
-cd 01_Neuronal_Preprocessing
-Neuronal_Preprocessing_Pipeline
-
-% Module 2: Synchronize behavior
-cd ../02_Behavioral_Synchronization
-Behavioral_Tracking_Pipeline
-
-% Module 3: Quality control
-cd ../03_Quality_Control
-Trace_QC_Pipeline
-
-% Module 4: Classification analysis
-cd ../04_Neural_Classification
-% [Load your processed data and run classification]
-```
-
----
-
-
-## Key Publications & Methods
-
-**Fiber Photometry:**
-- Dual-wavelength correction: Lerner et al., 2015 (*Cell*)
-- ΔF/F₀ normalization: Gunaydin et al., 2014 (*Nat Neurosci*)
-
-**Behavioral Tracking:**
-- DeepLabCut: Mathis et al., 2018 (*Nat Neurosci*)
-
-**Machine Learning:**
-- Temporal train/test splits: Varoquaux et al., 2017 (*NeuroImage*)
-- Feature importance: Breiman, 2001 (*Mach Learn*)
-
----
 
 ## Performance Metrics
 
@@ -222,17 +166,6 @@ cd ../04_Neural_Classification
 **Classification:**
 - Training time: <10 seconds per mouse (LDA/SVM)
 - Accuracy: 70-85% (real data), ~50% (random labels, as expected)
-
----
-
-## Future Enhancements
-
-- [ ] GPU acceleration for Random Forest training
-- [ ] Deep learning models (LSTM, Transformer) for temporal dynamics
-- [ ] Cross-validated hyperparameter tuning
-- [ ] Dimensionality reduction (PCA, t-SNE) visualization
-- [ ] Multi-class classification (>2 behavioral states)
-- [ ] Region-specific analysis (hippocampus-only, cortex-only models)
 
 ---
 
