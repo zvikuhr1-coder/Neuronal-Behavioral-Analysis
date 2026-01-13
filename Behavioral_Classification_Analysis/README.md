@@ -331,15 +331,13 @@ Actual Novel    TP      FN
 
 ---
 
-## Contact
+## Citation
 
-For questions, issues, or collaboration opportunities:
-- GitHub Issues: [your-repo]/issues
-- Email: [your email]
-
----
-
-
-This pipeline demonstrates standard practices in neural decoding analysis. The temporal train/test split approach follows recommendations from [relevant papers], and the multi-model comparison strategy is inspired by [machine learning benchmarking literature].
-
-**Note**: Always validate results with cross-validation, permutation testing, and biological controls before drawing strong conclusions about neural coding.
+```bibtex
+@software{behavioral_pipeline,
+  author = {[Zvi Kuhr]},
+  title = {Behavioral Tracking and Synchronization Pipeline},
+  year = {2025},
+  url = {https://github.com/zvikuhr1-coder/behavioral-pipeline}
+}
+```
