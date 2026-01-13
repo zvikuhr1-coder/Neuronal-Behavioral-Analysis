@@ -242,7 +242,7 @@ If you use this pipeline in your research, please cite:
 
 ```bibtex
 @software{neuronal_behavioral_analysis_2025,
-  author = {[Your Name]},
+  author = {[Zvi Kuhr]},
   title = {Neuronal-Behavioral-Analysis: Integrated Pipeline for Neural Decoding},
   year = {2025},
   url = {https://github.com/yourusername/Neuronal-Behavioral-Analysis}
@@ -253,10 +253,10 @@ If you use this pipeline in your research, please cite:
 
 ## Contact
 
-**Author:** [Zvi Kuhr]  
+**Author:** Zvi Kuhr
 **Email:** zvikuhr1@gmail.com
-**GitHub:** [@zvikuhr1-coder](https://github.com/yourusername)  
-**LinkedIn:** [zvikuhr](https://linkedin.com/in/yourprofile)
+**GitHub:** [@zvikuhr1-coder](https://github.com/zvikuhr1-coder)  
+**LinkedIn:** [www.linkedin.com/in/zvi-kuhr]
 
 For questions, bug reports, or collaboration opportunities, please [open an issue](https://github.com/yourusername/Neuronal-Behavioral-Analysis/issues).
 
