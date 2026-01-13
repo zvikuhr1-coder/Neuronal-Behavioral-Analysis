@@ -1,6 +1,6 @@
 # Neuronal-Behavioral-Analysis
 
-A comprehensive MATLAB pipeline for integrating multi-region calcium imaging with behavioral tracking to decode neural representations of memory and decision-making in freely moving mice.
+A comprehensive MATLAB pipeline for integrating multi-region calcium imaging with behavioral tracking to decode neural representations of memory and Novelty in freely moving mice.
 
 ---
 
