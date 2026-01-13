@@ -1,0 +1,1173 @@
+function [tc_artifact_corrected] = artifact_correction_system3(session_blue, session_purple, session_frames, MOUSE_DATA, current_mouse_name)
+    % Interactive artifact detection and correction system with callbacks
+    % Input: 
+    %   session_blue - blue signal for current session
+    %   session_purple - purple signal for current session  
+    %   session_frames - corrected frames for current session
+    %   MOUSE_DATA - structure containing all mouse data for calculating statistics
+    %   current_mouse_name - name of current mouse being processed
+    % Output:
+    %   tc_artifact_corrected - corrected frames signal for this session
+    
+    % Brain area IDs
+    ID = {'S1BF','CPU','S1BF(2)','GP','M1','Re','Re(2)',...
+          'BLA','BLA(2)','S1BF(3)','CeM','RT','S1BF(4)','VPM','CA3','CA3(2)','CA1','DG','Re(3)',...
+          'PRh','DLEnt','DIEnt','VIEnt','VIEnt(2)','DG(2)','Ment','DG(3)','Post','RSD',...
+          'DLEnt(2)','Ment(2)','TEA','CEnt','CEnt(2)','V1','Prs','Post(2)'};
+    
+    fprintf('\n=== Interactive Artifact Correction for Mouse: %s ===\n', current_mouse_name);
+    
+    % Initialize global data structure for callbacks
+    global ArtifactData
+    ArtifactData = struct();
+    ArtifactData.session_blue = session_blue;
+    ArtifactData.session_purple = session_purple;
+    ArtifactData.session_frames = session_frames;
+    ArtifactData.corrected_frames = session_frames;
+    ArtifactData.ID = ID;
+    ArtifactData.mouse_name = current_mouse_name;
+    ArtifactData.current_path = pwd;
+    ArtifactData.total_frames = size(session_frames, 2);
+    ArtifactData.num_areas = min(size(session_frames, 1), length(ID));
+    ArtifactData.sampling_rate = 10;
+    ArtifactData.current_start_frame = 1;
+    ArtifactData.window_size = 600;
+    ArtifactData.selected_area = [];
+    ArtifactData.modifications = {};
+    ArtifactData.step = 1; % 1=flip check, 2=trace selection, 3=trace editing, 4=review
+    ArtifactData.channels_flipped = false;
+    % Calculate mouse-specific statistics
+    ArtifactData.mouse_stats = calculate_mouse_statistics(MOUSE_DATA, current_mouse_name, ID);
+    
+    % Step 1: Check for channel flipping (first 600 frames only)
+    check_channel_flip_interactive();
+    
+    % Wait for user to complete all steps
+    waitfor_completion();
+    
+    % Return corrected data
+    tc_artifact_corrected = ArtifactData.corrected_frames;
+    
+    fprintf('\n=== Artifact correction completed for mouse %s ===\n', current_mouse_name);
+    
+    % Clear global data
+    clear global ArtifactData
+end
+
+function waitfor_completion()
+    global ArtifactData
+    
+    % Wait until step 4 is completed
+    while ArtifactData.step < 5
+        pause(0.1);
+        drawnow;
+    end
+end
+
+function check_channel_flip_interactive()
+    global ArtifactData
+    
+    fprintf('\nStep 1: Checking for channel flipping (first 600 frames)...\n');
+    
+    % Create figure for flip check
+    fig = figure('Name', sprintf('%s - Channel Flip Check', ArtifactData.mouse_name));
+    set(fig, 'Position', get(0, 'Screensize'));
+    set(fig, 'CloseRequestFcn', @close_flip_check);
+    
+    ArtifactData.flip_fig = fig;
+    
+    % Create UI controls
+    uicontrol('Style', 'pushbutton', 'String', 'Traces Look Normal', ...
+        'Position', [50, 50, 150, 40], 'Callback', @keep_normal_callback, ...
+        'FontSize', 12, 'BackgroundColor', [0.8 1 0.8]);
+    
+    uicontrol('Style', 'pushbutton', 'String', 'Traces Look Flipped', ...
+        'Position', [220, 50, 150, 40], 'Callback', @flip_channels_callback, ...
+        'FontSize', 12, 'BackgroundColor', [1 0.8 0.8]);
+    
+    % Plot the traces (first 600 frames only)
+    plot_flip_check_traces();
+end
+
+function plot_flip_check_traces()
+    global ArtifactData
+    
+    figure(ArtifactData.flip_fig);
+    
+    % Clear previous plots
+    clf(ArtifactData.flip_fig);
+    
+    % Recreate buttons
+    uicontrol('Style', 'pushbutton', 'String', 'Traces Look Normal', ...
+        'Position', [50, 50, 150, 40], 'Callback', @keep_normal_callback, ...
+        'FontSize', 12, 'BackgroundColor', [0.8 1 0.8]);
+    
+    uicontrol('Style', 'pushbutton', 'String', 'Traces Look Flipped', ...
+        'Position', [220, 50, 150, 40], 'Callback', @flip_channels_callback, ...
+        'FontSize', 12, 'BackgroundColor', [1 0.8 0.8]);
+    
+    % Create subplots
+    hsp(1) = subplot(1,2,1);
+    hsp(2) = subplot(1,2,2);
+    set(hsp(1),'Position',[0.1300 0.1100 0.3347 0.8150]);
+    set(hsp(2),'Position',[0.5703 0.1100 0.3347 0.8150]);
+    
+    % Use first 600 frames only
+    frame_end = min(600, ArtifactData.total_frames);
+    time_sec = (0:frame_end-1)/ArtifactData.sampling_rate;
+    
+    half_areas = ceil(ArtifactData.num_areas / 2);
+    deltaF = 0.05;
+    
+    % Plot first half of areas
+    subplot(hsp(1))
+    set(gca,'color','w')
+    for i = 1:half_areas
+        hold on
+        if i == 1
+            plot([max(time_sec)-4, max(time_sec)-4], [0, deltaF], 'k', 'LineWidth', 2)
+            text(max(time_sec)-3, deltaF/2, sprintf('%.2f', deltaF), 'FontSize', 10)
+        end
+        plot(time_sec, ArtifactData.corrected_frames(i, 1:frame_end) - i*deltaF, 'b', 'LineWidth', 2)
+    end
+    
+    ytick_pos = [-deltaF*half_areas:deltaF:0];
+    ytick_labels = [fliplr(ArtifactData.ID(1:half_areas)), {'\DeltaF/F'}];
+    set(gca, 'Ytick', ytick_pos, 'YtickLabel', ytick_labels)
+    xlim([0 max(time_sec)])
+    xlabel('Time (s)')
+    title('First Half of Brain Areas')
+    
+    % Plot second half of areas
+    subplot(hsp(2))
+    set(gca,'color','w')
+    remaining_areas = ArtifactData.num_areas - half_areas;
+    for i = 1:remaining_areas
+        hold on
+        area_idx = half_areas + i;
+        if i == 1
+            plot([max(time_sec)-4, max(time_sec)-4], [0, deltaF], 'k', 'LineWidth', 2)
+            text(max(time_sec)-3, deltaF/2, sprintf('%.2f', deltaF), 'FontSize', 10)
+        end
+        plot(time_sec, ArtifactData.corrected_frames(area_idx, 1:frame_end) - i*deltaF, 'b', 'LineWidth', 2)
+    end
+    
+    ytick_pos = [-deltaF*remaining_areas:deltaF:0];
+    ytick_labels = [fliplr(ArtifactData.ID(half_areas+1:ArtifactData.num_areas)), {'\DeltaF/F'}];
+    set(gca, 'Ytick', ytick_pos, 'YtickLabel', ytick_labels)
+    xlim([0 max(time_sec)])
+    xlabel('Time (s)')
+    title('Second Half of Brain Areas')
+    
+    sgtitle(sprintf('Session: %s\nMouse: %s - Do the traces look flipped?\nFirst 600 frames (0-%.1f s)', ...
+        ArtifactData.current_path, ArtifactData.mouse_name, max(time_sec)));
+end
+
+function keep_normal_callback(~, ~)
+    global ArtifactData
+    
+    fprintf('Keeping original channel configuration.\n');
+    close(ArtifactData.flip_fig);
+    
+    % Move to step 2
+    ArtifactData.step = 2;
+    show_trace_selection();
+end
+
+function flip_channels_callback(~, ~)
+    global ArtifactData
+    
+    fprintf('Flipping channels: corrected = purple - blue\n');
+    
+    % Flip the calculation
+    ArtifactData.corrected_frames = ArtifactData.session_purple - ArtifactData.session_blue;
+    ArtifactData.channels_flipped = true; % Track that channels are flipped
+    
+    % Update the plot to show flipped version
+    plot_flip_check_traces();
+    
+    % Add confirmation button
+    uicontrol('Style', 'pushbutton', 'String', 'Confirm Flip', ...
+        'Position', [400, 50, 150, 40], 'Callback', @confirm_flip_callback, ...
+        'FontSize', 12, 'BackgroundColor', [0.8 0.8 1]);
+end
+
+function confirm_flip_callback(~, ~)
+    global ArtifactData
+    
+    fprintf('Channels have been flipped and confirmed.\n');
+    close(ArtifactData.flip_fig);
+    
+    % Move to step 2
+    ArtifactData.step = 2;
+    show_trace_selection();
+end
+
+function close_flip_check(~, ~)
+    global ArtifactData
+    
+    % If user closes without selecting, keep original
+    fprintf('Window closed. Keeping original channel configuration.\n');
+    delete(ArtifactData.flip_fig);
+    
+    % Move to step 2
+    ArtifactData.step = 2;
+    show_trace_selection();
+end
+
+function show_trace_selection()
+    global ArtifactData
+    
+    fprintf('\nStep 2: Interactive trace selection...\n');
+    fprintf('Use scroll wheel to navigate through frames.\n');
+    fprintf('Click on a problematic trace to edit it.\n');
+    
+    % Create figure for trace selection
+    fig = figure('Name', sprintf('%s - Trace Selection', ArtifactData.mouse_name));
+    set(fig, 'Position', get(0, 'Screensize'));
+    set(fig, 'WindowScrollWheelFcn', @scroll_callback);
+    set(fig, 'WindowButtonDownFcn', @trace_click_callback);
+    set(fig, 'CloseRequestFcn', @close_trace_selection);
+    
+    ArtifactData.selection_fig = fig;
+    
+    % Add navigation controls
+    uicontrol('Style', 'pushbutton', 'String', '← Previous 600', ...
+        'Position', [50, 50, 120, 30], 'Callback', @prev_window_callback);
+    
+    uicontrol('Style', 'pushbutton', 'String', 'Next 600 →', ...
+        'Position', [180, 50, 120, 30], 'Callback', @next_window_callback);
+    
+    uicontrol('Style', 'text', 'String', '', 'Tag', 'FrameInfo', ...
+        'Position', [320, 50, 200, 30], 'FontSize', 10);
+    
+    uicontrol('Style', 'pushbutton', 'String', 'Finish Selection', ...
+        'Position', [550, 50, 120, 30], 'Callback', @finish_selection_callback, ...
+        'FontSize', 10, 'BackgroundColor', [0.8 1 0.8]);
+    
+    % Plot initial traces
+    plot_trace_selection();
+end
+
+function plot_trace_selection()
+    global ArtifactData
+    
+    figure(ArtifactData.selection_fig);
+    
+    % Clear previous plots but keep controls
+    children = get(ArtifactData.selection_fig, 'Children');
+    for i = 1:length(children)
+        if strcmp(get(children(i), 'Type'), 'axes')
+            delete(children(i));
+        end
+    end
+    
+    % Calculate current window
+    frame_start = ArtifactData.current_start_frame;
+    frame_end = min(frame_start + ArtifactData.window_size - 1, ArtifactData.total_frames);
+    
+    % Update frame info
+    frame_info_handle = findobj(ArtifactData.selection_fig, 'Tag', 'FrameInfo');
+    set(frame_info_handle, 'String', sprintf('Frames %d-%d of %d', frame_start, frame_end, ArtifactData.total_frames));
+    
+    % Create subplots
+    % Create subplots with more room at bottom for controls
+    hsp(1) = subplot(1,2,1);
+    hsp(2) = subplot(1,2,2);
+    set(hsp(1),'Position',[0.1300 0.2000 0.3347 0.7150]);  % Moved up from 0.1500
+    set(hsp(2),'Position',[0.5703 0.2000 0.3347 0.7150]);  % Moved up from 0.1500
+    time_sec = (frame_start-1:frame_end-1)/ArtifactData.sampling_rate;
+    half_areas = ceil(ArtifactData.num_areas / 2);
+    deltaF = 0.05;
+    
+    % Store trace positions for click detection
+    ArtifactData.trace_positions = zeros(ArtifactData.num_areas, 2); % [subplot, y_offset]
+    
+    % Plot first half of areas
+    subplot(hsp(1))
+    set(gca,'color','w')
+    for i = 1:half_areas
+        hold on
+        if i == 1
+            plot([max(time_sec)-4, max(time_sec)-4], [0, deltaF], 'k', 'LineWidth', 2)
+            text(max(time_sec)-3, deltaF/2, sprintf('%.2f', deltaF), 'FontSize', 10)
+        end
+        
+        y_offset = -i*deltaF;
+        plot(time_sec, ArtifactData.corrected_frames(i, frame_start:frame_end) + y_offset, 'b', 'LineWidth', 2)
+        
+        % Store position for click detection
+        ArtifactData.trace_positions(i, :) = [1, y_offset];
+    end
+    
+    ytick_pos = [-deltaF*half_areas:deltaF:0];
+    ytick_labels = [fliplr(ArtifactData.ID(1:half_areas)), {'\DeltaF/F'}];
+    set(gca, 'Ytick', ytick_pos, 'YtickLabel', ytick_labels)
+    xlim([min(time_sec) max(time_sec)])
+    xlabel('Time (s)')
+    title('First Half of Brain Areas')
+    
+    % Plot second half of areas
+    subplot(hsp(2))
+    set(gca,'color','w')
+    remaining_areas = ArtifactData.num_areas - half_areas;
+    for i = 1:remaining_areas
+        hold on
+        area_idx = half_areas + i;
+        if i == 1
+            plot([max(time_sec)-4, max(time_sec)-4], [0, deltaF], 'k', 'LineWidth', 2)
+            text(max(time_sec)-3, deltaF/2, sprintf('%.2f', deltaF), 'FontSize', 10)
+        end
+        
+        y_offset = -i*deltaF;
+        plot(time_sec, ArtifactData.corrected_frames(area_idx, frame_start:frame_end) + y_offset, 'b', 'LineWidth', 2)
+        
+        % Store position for click detection
+        ArtifactData.trace_positions(area_idx, :) = [2, y_offset];
+    end
+    
+    ytick_pos = [-deltaF*remaining_areas:deltaF:0];
+    ytick_labels = [fliplr(ArtifactData.ID(half_areas+1:ArtifactData.num_areas)), {'\DeltaF/F'}];
+    set(gca, 'Ytick', ytick_pos, 'YtickLabel', ytick_labels)
+    xlim([min(time_sec) max(time_sec)])
+    xlabel('Time (s)')
+    title('Second Half of Brain Areas')
+    
+    sgtitle(sprintf('Session: %s\nMouse: %s - Click on problematic trace\nFrames %d-%d', ...
+        ArtifactData.current_path, ArtifactData.mouse_name, frame_start, frame_end));
+end
+
+function scroll_callback(~, eventdata)
+    global ArtifactData
+    
+    if ArtifactData.step ~= 2, return; end
+    
+    % Scroll through frames
+    scroll_direction = eventdata.VerticalScrollCount;
+    
+    if scroll_direction < 0
+        % Scroll up - previous frames
+        ArtifactData.current_start_frame = max(1, ArtifactData.current_start_frame - ArtifactData.window_size);
+    else
+        % Scroll down - next frames
+        ArtifactData.current_start_frame = min(ArtifactData.total_frames - ArtifactData.window_size + 1, ...
+            ArtifactData.current_start_frame + ArtifactData.window_size);
+    end
+    
+    plot_trace_selection();
+end
+
+function prev_window_callback(~, ~)
+    global ArtifactData
+    
+    ArtifactData.current_start_frame = max(1, ArtifactData.current_start_frame - ArtifactData.window_size);
+    plot_trace_selection();
+end
+
+function next_window_callback(~, ~)
+    global ArtifactData
+    
+    ArtifactData.current_start_frame = min(ArtifactData.total_frames - ArtifactData.window_size + 1, ...
+        ArtifactData.current_start_frame + ArtifactData.window_size);
+    plot_trace_selection();
+end
+
+function trace_click_callback(~, ~)
+    global ArtifactData
+    
+    if ArtifactData.step ~= 2, return; end
+    
+    % Get click position
+    click_pos = get(gca, 'CurrentPoint');
+    click_y = click_pos(1, 2);
+    
+    % Get all subplot handles
+    all_axes = findall(ArtifactData.selection_fig, 'Type', 'axes');
+    current_axes = gca;
+    
+    % Determine which subplot was clicked by comparing handles
+    subplot_num = 0;
+    for i = 1:length(all_axes)
+        if all_axes(i) == current_axes
+            % Get the position to determine if it's left (1) or right (2)
+            pos = get(current_axes, 'Position');
+            if pos(1) < 0.4  % Left subplot has x-position < 0.4
+                subplot_num = 1;
+            else  % Right subplot
+                subplot_num = 2;
+            end
+            break;
+        end
+    end
+    
+    if subplot_num == 0
+        return; % Click not on a valid subplot
+    end
+    
+    % Find closest trace
+    min_distance = inf;
+    selected_area = 0;
+    
+    for i = 1:ArtifactData.num_areas
+        if ArtifactData.trace_positions(i, 1) == subplot_num
+            trace_y = ArtifactData.trace_positions(i, 2);
+            distance = abs(click_y - trace_y);
+            
+            if distance < min_distance && distance < 0.05 % Increased sensitivity
+                min_distance = distance;
+                selected_area = i;
+            end
+        end
+    end
+    
+    if selected_area > 0
+        fprintf('Selected area: %s (ID: %d) from subplot %d\n', ArtifactData.ID{selected_area}, selected_area, subplot_num);
+        ArtifactData.selected_area = selected_area;
+        
+        % Move to step 3
+        ArtifactData.step = 3;
+        close(ArtifactData.selection_fig);
+        show_trace_editing();
+    else
+        fprintf('No trace selected. Click closer to a trace line.\n');
+    end
+end
+
+function finish_selection_callback(~, ~)
+    global ArtifactData
+    
+    % Move to step 4 (review)
+    ArtifactData.step = 4;
+    close(ArtifactData.selection_fig);
+    show_review();
+end
+
+function close_trace_selection(~, ~)
+    global ArtifactData
+    
+    % Move to step 4 (review)
+    ArtifactData.step = 4;
+    delete(ArtifactData.selection_fig);
+    show_review();
+end
+
+function show_trace_editing()
+    global ArtifactData
+    
+    area_idx = ArtifactData.selected_area;
+    area_name = ArtifactData.ID{area_idx};
+    
+    fprintf('\nStep 3: Editing trace for %s...\n', area_name);
+    
+    % Create figure for trace editing
+    fig = figure('Name', sprintf('%s - Editing %s', ArtifactData.mouse_name, area_name));
+    set(fig, 'Position', get(0, 'Screensize'));
+    set(fig, 'WindowScrollWheelFcn', @edit_scroll_callback);
+    set(fig, 'CloseRequestFcn', @close_trace_editing);
+    
+    ArtifactData.edit_fig = fig;
+    ArtifactData.edit_start_frame = 1;
+    ArtifactData.edit_window_size = 600;
+    
+    % Replace the UI controls section in show_trace_editing() with this:
+    uicontrol('Style', 'pushbutton', 'String', '← Previous 600', ...
+        'Position', [50, 50, 100, 30], 'Callback', @edit_prev_callback);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Next 600 →', ...
+        'Position', [160, 50, 100, 30], 'Callback', @edit_next_callback);
+    dx = 500;  % Shift in x-direction
+
+    uicontrol('Style', 'text', 'String', 'Start Frame:', ...
+        'Position', [450+dx, 220, 70, 20], 'FontSize', 10);
+
+    uicontrol('Style', 'edit', 'String', '1', 'Tag', 'StartFrameEdit', ...
+        'Position', [525+dx, 220, 60, 25], 'FontSize', 10);
+
+    uicontrol('Style', 'text', 'String', 'End Frame:', ...
+        'Position', [600+dx, 220, 70, 20], 'FontSize', 10);
+
+    uicontrol('Style', 'edit', 'String', '1', 'Tag', 'EndFrameEdit', ...
+        'Position', [675+dx, 220, 60, 25], 'FontSize', 10);
+
+    uicontrol('Style', 'text', 'String', 'Single Area Actions:', ...
+        'Position', [450+dx, 195, 120, 15], 'FontSize', 9, 'FontWeight', 'bold');
+
+    uicontrol('Style', 'pushbutton', 'String', 'Set Range to NaN', ...
+        'Position', [450+dx, 170, 100, 20], 'Callback', @set_range_nan_callback, ...
+        'FontSize', 8, 'BackgroundColor', [1 0.8 0.8]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Use Blue for Range', ...
+        'Position', [555+dx, 170, 100, 20], 'Callback', @set_range_blue_callback, ...
+        'FontSize', 8, 'BackgroundColor', [0.8 0.8 1]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Interpolate Range', ...
+        'Position', [660+dx, 170, 100, 20], 'Callback', @interpolate_range_callback, ...
+        'FontSize', 8, 'BackgroundColor', [0.8 1 1]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Set Entire NaN', ...
+        'Position', [450+dx, 145, 100, 20], 'Callback', @entire_nan_callback, ...
+        'FontSize', 8, 'BackgroundColor', [1 0.6 0.6]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Use Blue Entire', ...
+        'Position', [555+dx, 145, 100, 20], 'Callback', @entire_blue_callback, ...
+        'FontSize', 8, 'BackgroundColor', [0.6 0.6 1]);
+
+    uicontrol('Style', 'text', 'String', 'Batch Operations (All Areas):', ...
+        'Position', [450+dx, 120, 150, 15], 'FontSize', 9, 'FontWeight', 'bold');
+
+    uicontrol('Style', 'pushbutton', 'String', 'Batch NaN Range', ...
+        'Position', [450+dx, 95, 100, 20], 'Callback', @batch_nan_range_callback, ...
+        'FontSize', 8, 'BackgroundColor', [1 0.7 0.7]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Batch Blue Range', ...
+        'Position', [555+dx, 95, 100, 20], 'Callback', @batch_blue_range_callback, ...
+        'FontSize', 8, 'BackgroundColor', [0.7 0.7 1]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Batch Interpolate', ...
+        'Position', [660+dx, 95, 100, 20], 'Callback', @batch_interpolate_callback, ...
+        'FontSize', 8, 'BackgroundColor', [0.7 1 1]);
+
+    uicontrol('Style', 'pushbutton', 'String', 'Done with This Trace', ...
+        'Position', [770+dx, 130, 120, 30], 'Callback', @done_editing_callback, ...
+        'FontSize', 10, 'BackgroundColor', [0.8 1 0.8]);
+
+    uicontrol('Style', 'text', 'String', 'Enter frame range above, then choose action', ...
+        'Position', [450+dx, 70, 250, 15], 'FontSize', 8);
+
+    % Plot initial trace
+    plot_trace_editing();
+end
+
+function plot_trace_editing()
+    global ArtifactData
+    
+    figure(ArtifactData.edit_fig);
+    
+    % Clear previous plots but keep controls
+    children = get(ArtifactData.edit_fig, 'Children');
+    for i = 1:length(children)
+        if strcmp(get(children(i), 'Type'), 'axes')
+            delete(children(i));
+        end
+    end
+    
+    area_idx = ArtifactData.selected_area;
+    area_name = ArtifactData.ID{area_idx};
+    
+    % Calculate current window
+    frame_start = ArtifactData.edit_start_frame;
+    frame_end = min(frame_start + ArtifactData.edit_window_size - 1, ArtifactData.total_frames);
+    
+    % Update frame info
+    frame_info_handle = findobj(ArtifactData.edit_fig, 'Tag', 'EditFrameInfo');
+    set(frame_info_handle, 'String', sprintf('Frames %d-%d', frame_start, frame_end));
+    
+    % Get area data - handle channel flipping correctly
+    area_corrected = ArtifactData.corrected_frames(area_idx, frame_start:frame_end);
+    
+    % Get original blue and purple signals
+    area_blue_original = ArtifactData.session_blue(area_idx, frame_start:frame_end);
+    area_purple_original = ArtifactData.session_purple(area_idx, frame_start:frame_end);
+    
+    % Get statistics
+    if ~ArtifactData.mouse_stats.use_defaults && area_idx <= length(ArtifactData.mouse_stats.frames_std)
+        area_std = ArtifactData.mouse_stats.frames_std(area_idx);
+        area_median = ArtifactData.mouse_stats.frames_median(area_idx);
+    else
+        clean_data = area_corrected(~isnan(area_corrected) & ~isinf(area_corrected));
+        if length(clean_data) > 50
+            area_std = std(clean_data);
+            area_median = median(clean_data);
+        else
+            area_std = 1;
+            area_median = 0;
+        end
+    end
+    
+    % Main trace plot
+    subplot(2, 2, [1, 2]);
+    t = frame_start:frame_end;
+    
+    plot(t, area_corrected, 'k-', 'LineWidth', 2); hold on;
+    
+    % FIXED: Plot with correct labels based on channel flip status
+    if ArtifactData.channels_flipped
+        % After flip: the "blue" channel is now the old purple, "purple" channel is now the old blue
+        plot(t, area_purple_original, 'b-', 'LineWidth', 1.5);    % This is now the "blue" channel
+        plot(t, area_blue_original, 'Color', [0.5 0 0.5], 'LineWidth', 1.5);  % This is now the "purple" channel
+        legend_entries = {'Corrected (Purple-Blue)', 'Blue Channel (was Purple)', 'Purple Channel (was Blue)'};
+        corrected_desc = 'Channels Flipped';
+    else
+        % Normal case: corrected = blue - purple
+        plot(t, area_blue_original, 'b-', 'LineWidth', 1.5);    % Blue signal
+        plot(t, area_purple_original, 'Color', [0.5 0 0.5], 'LineWidth', 1.5);  % Purple signal
+        legend_entries = {'Corrected (Blue-Purple)', 'Blue Channel', 'Purple Channel'};
+        corrected_desc = 'Normal Configuration';
+    end
+    
+    % Add std boundaries
+    upper_bound = area_median + 3 * area_std;
+    lower_bound = area_median - 3 * area_std;
+    yline(upper_bound, 'g--', '+3 STD', 'LineWidth', 1);
+    yline(lower_bound, 'g--', '-3 STD', 'LineWidth', 1);
+    yline(area_median, 'g-', 'Median', 'LineWidth', 1);
+    
+    title(sprintf('%s - %s\nFrames %d-%d (%s)', ...
+        ArtifactData.mouse_name, area_name, frame_start, frame_end, corrected_desc));
+    xlabel('Frame Number');
+    ylabel('Signal Intensity');
+    
+    legend(legend_entries, 'Location', 'best');
+    grid on;
+    
+    % Histogram
+    subplot(2, 2, 3);
+    clean_corrected = area_corrected(~isnan(area_corrected) & ~isinf(area_corrected));
+    if ~isempty(clean_corrected)
+        histogram(clean_corrected, 50);
+        xline(area_median, 'g-', 'Median', 'LineWidth', 2);
+        xline(upper_bound, 'g--', '+3STD', 'LineWidth', 1);
+        xline(lower_bound, 'g--', '-3STD', 'LineWidth', 1);
+        title('Distribution of Corrected Signal');
+        xlabel('Signal Intensity');
+        ylabel('Count');
+    end
+    
+    % Statistics text
+    subplot(2, 2, 4);
+    axis off;
+    stats_text = sprintf(['Area: %s\n\n' ...
+                         'Statistics:\n' ...
+                         'Median: %.4f\n' ...
+                         'Std: %.4f\n' ...
+                         'Range: %.4f to %.4f\n\n' ...
+                         'Current Window:\n' ...
+                         'Frames %d-%d\n' ...
+                         'Total Frames: %d\n\n' ...
+                         'Channel Status:\n' ...
+                         '%s'], ...
+                        area_name, area_median, area_std, ...
+                        min(clean_corrected), max(clean_corrected), ...
+                        frame_start, frame_end, ArtifactData.total_frames, ...
+                        corrected_desc);
+    
+    text(0.1, 0.9, stats_text, 'Units', 'normalized', 'FontSize', 10, ...
+         'VerticalAlignment', 'top', 'FontName', 'FixedWidth');
+end
+
+function edit_scroll_callback(~, eventdata)
+    global ArtifactData
+    
+    if ArtifactData.step ~= 3, return; end
+    
+    % Scroll through frames
+    scroll_direction = eventdata.VerticalScrollCount;
+    
+    if scroll_direction < 0
+        % Scroll up - previous frames
+        ArtifactData.edit_start_frame = max(1, ArtifactData.edit_start_frame - ArtifactData.edit_window_size);
+    else
+        % Scroll down - next frames
+        ArtifactData.edit_start_frame = min(ArtifactData.total_frames - ArtifactData.edit_window_size + 1, ...
+            ArtifactData.edit_start_frame + ArtifactData.edit_window_size);
+    end
+    
+    plot_trace_editing();
+end
+
+function edit_prev_callback(~, ~)
+    global ArtifactData
+    
+    ArtifactData.edit_start_frame = max(1, ArtifactData.edit_start_frame - ArtifactData.edit_window_size);
+    plot_trace_editing();
+end
+
+function edit_next_callback(~, ~)
+    global ArtifactData
+    
+    ArtifactData.edit_start_frame = min(ArtifactData.total_frames - ArtifactData.edit_window_size + 1, ...
+        ArtifactData.edit_start_frame + ArtifactData.edit_window_size);
+    plot_trace_editing();
+end
+
+function set_range_nan_callback(~, ~)
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    start_frame_handle = findobj(ArtifactData.edit_fig, 'Tag', 'StartFrameEdit');
+    end_frame_handle = findobj(ArtifactData.edit_fig, 'Tag', 'EndFrameEdit');
+    
+    start_frame = str2double(get(start_frame_handle, 'String'));
+    end_frame = str2double(get(end_frame_handle, 'String'));
+    
+    % Validate inputs
+    if isnan(start_frame) || isnan(end_frame) || start_frame < 1 || end_frame > ArtifactData.total_frames || start_frame > end_frame
+        errordlg(sprintf('Invalid frame range. Please enter values between 1 and %d with start <= end', ArtifactData.total_frames));
+        return;
+    end
+    
+    area_idx = ArtifactData.selected_area;
+    
+    % Set range to NaN
+    ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = NaN;
+    
+    % Record modification
+    modification = sprintf('Set frames %d-%d to NaN for area %s', start_frame, end_frame, ArtifactData.ID{area_idx});
+    ArtifactData.modifications{end+1} = modification;
+    
+    fprintf('%s\n', modification);
+    
+    % Update plot
+    plot_trace_editing();
+end
+
+function set_range_blue_callback(~, ~)
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    start_frame_handle = findobj(ArtifactData.edit_fig, 'Tag', 'StartFrameEdit');
+    end_frame_handle = findobj(ArtifactData.edit_fig, 'Tag', 'EndFrameEdit');
+    
+    start_frame = str2double(get(start_frame_handle, 'String'));
+    end_frame = str2double(get(end_frame_handle, 'String'));
+    
+    % Validate inputs
+    if isnan(start_frame) || isnan(end_frame) || start_frame < 1 || end_frame > ArtifactData.total_frames || start_frame > end_frame
+        errordlg(sprintf('Invalid frame range. Please enter values between 1 and %d with start <= end', ArtifactData.total_frames));
+        return;
+    end
+    
+    area_idx = ArtifactData.selected_area;
+    
+    % FIXED: Use the correct "blue" channel based on flip status
+    if ArtifactData.channels_flipped
+        % After flip, the "blue" channel is actually the original purple data
+        ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = ...
+            ArtifactData.session_purple(area_idx, start_frame:end_frame);
+        replacement_desc = 'blue channel (original purple)';
+    else
+        % Normal case, blue channel is the original blue data
+        ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = ...
+            ArtifactData.session_blue(area_idx, start_frame:end_frame);
+        replacement_desc = 'blue channel (original blue)';
+    end
+    
+    % Record modification
+    modification = sprintf('Set frames %d-%d to %s for area %s', start_frame, end_frame, replacement_desc, ArtifactData.ID{area_idx});
+    ArtifactData.modifications{end+1} = modification;
+    
+    fprintf('%s\n', modification);
+    
+    % Update plot
+    plot_trace_editing();
+end
+
+function entire_nan_callback(~, ~)
+    global ArtifactData
+    
+    area_idx = ArtifactData.selected_area;
+    
+    % Confirm action
+    answer = questdlg(sprintf('Set entire trace for %s to NaN?', ArtifactData.ID{area_idx}), ...
+                     'Confirm Action', 'Yes', 'No', 'No');
+    
+    if strcmp(answer, 'Yes')
+        % Set entire trace to NaN
+        ArtifactData.corrected_frames(area_idx, :) = NaN;
+        
+        % Record modification
+        modification = sprintf('Set entire trace to NaN for area %s', ArtifactData.ID{area_idx});
+        ArtifactData.modifications{end+1} = modification;
+        
+        fprintf('%s\n', modification);
+        
+        % Update plot
+        plot_trace_editing();
+    end
+end
+
+function entire_blue_callback(~, ~)
+    global ArtifactData
+    
+    area_idx = ArtifactData.selected_area;
+    
+    % Confirm action
+    answer = questdlg(sprintf('Set entire trace for %s to blue channel?', ArtifactData.ID{area_idx}), ...
+                     'Confirm Action', 'Yes', 'No', 'No');
+    
+    if strcmp(answer, 'Yes')
+        % FIXED: Use the correct "blue" channel based on flip status
+        if ArtifactData.channels_flipped
+            % After flip, the "blue" channel is actually the original purple data
+            ArtifactData.corrected_frames(area_idx, :) = ArtifactData.session_purple(area_idx, :);
+            replacement_desc = 'blue channel (original purple)';
+        else
+            % Normal case, blue channel is the original blue data
+            ArtifactData.corrected_frames(area_idx, :) = ArtifactData.session_blue(area_idx, :);
+            replacement_desc = 'blue channel (original blue)';
+        end
+        
+        % Record modification
+        modification = sprintf('Set entire trace to %s for area %s', replacement_desc, ArtifactData.ID{area_idx});
+        ArtifactData.modifications{end+1} = modification;
+        
+        fprintf('%s\n', modification);
+        
+        % Update plot
+        plot_trace_editing();
+    end
+end
+
+% Add these new callback functions after the existing callback functions:
+
+function interpolate_range_callback(~, ~)
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    [start_frame, end_frame] = get_frame_range();
+    if isempty(start_frame), return; end
+    
+    area_idx = ArtifactData.selected_area;
+    
+    % Perform interpolation for the selected area
+    ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = ...
+        interpolate_data(ArtifactData.corrected_frames(area_idx, :), start_frame, end_frame);
+    
+    % Record modification
+    modification = sprintf('Interpolated frames %d-%d for area %s', start_frame, end_frame, ArtifactData.ID{area_idx});
+    ArtifactData.modifications{end+1} = modification;
+    
+    fprintf('%s\n', modification);
+    
+    % Update plot
+    plot_trace_editing();
+end
+
+function batch_nan_range_callback(~, ~)
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    [start_frame, end_frame] = get_frame_range();
+    if isempty(start_frame), return; end
+    
+    % Confirm action
+    answer = questdlg(sprintf('Set frames %d-%d to NaN for ALL %d brain areas?', ...
+                     start_frame, end_frame, ArtifactData.num_areas), ...
+                     'Confirm Batch Action', 'Yes', 'No', 'No');
+    
+    if strcmp(answer, 'Yes')
+        % Apply to all areas
+        for area_idx = 1:ArtifactData.num_areas
+            ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = NaN;
+        end
+        
+        % Record modification
+        modification = sprintf('Batch: Set frames %d-%d to NaN for all %d areas', ...
+                              start_frame, end_frame, ArtifactData.num_areas);
+        ArtifactData.modifications{end+1} = modification;
+        
+        fprintf('%s\n', modification);
+        
+        % Update plot
+        plot_trace_editing();
+    end
+end
+
+function batch_blue_range_callback(~, ~)
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    [start_frame, end_frame] = get_frame_range();
+    if isempty(start_frame), return; end
+    
+    % Confirm action
+    answer = questdlg(sprintf('Set frames %d-%d to blue channel for ALL %d brain areas?', ...
+                     start_frame, end_frame, ArtifactData.num_areas), ...
+                     'Confirm Batch Action', 'Yes', 'No', 'No');
+    
+    if strcmp(answer, 'Yes')
+        % Apply to all areas
+        for area_idx = 1:ArtifactData.num_areas
+            if ArtifactData.channels_flipped
+                % After flip, the "blue" channel is actually the original purple data
+                ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = ...
+                    ArtifactData.session_purple(area_idx, start_frame:end_frame);
+                replacement_desc = 'blue channel (original purple)';
+            else
+                % Normal case, blue channel is the original blue data
+                ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = ...
+                    ArtifactData.session_blue(area_idx, start_frame:end_frame);
+                replacement_desc = 'blue channel (original blue)';
+            end
+        end
+        
+        % Record modification
+        modification = sprintf('Batch: Set frames %d-%d to %s for all %d areas', ...
+                              start_frame, end_frame, replacement_desc, ArtifactData.num_areas);
+        ArtifactData.modifications{end+1} = modification;
+        
+        fprintf('%s\n', modification);
+        
+        % Update plot
+        plot_trace_editing();
+    end
+end
+
+function batch_interpolate_callback(~, ~)
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    [start_frame, end_frame] = get_frame_range();
+    if isempty(start_frame), return; end
+    
+    % Confirm action
+    answer = questdlg(sprintf('Interpolate frames %d-%d for ALL %d brain areas?', ...
+                     start_frame, end_frame, ArtifactData.num_areas), ...
+                     'Confirm Batch Action', 'Yes', 'No', 'No');
+    
+    if strcmp(answer, 'Yes')
+        % Apply to all areas
+        for area_idx = 1:ArtifactData.num_areas
+            ArtifactData.corrected_frames(area_idx, start_frame:end_frame) = ...
+                interpolate_data(ArtifactData.corrected_frames(area_idx, :), start_frame, end_frame);
+        end
+        
+        % Record modification
+        modification = sprintf('Batch: Interpolated frames %d-%d for all %d areas', ...
+                              start_frame, end_frame, ArtifactData.num_areas);
+        ArtifactData.modifications{end+1} = modification;
+        
+        fprintf('%s\n', modification);
+        
+        % Update plot
+        plot_trace_editing();
+    end
+end
+
+function [start_frame, end_frame] = get_frame_range()
+    global ArtifactData
+    
+    % Get frame range from text inputs
+    start_frame_handle = findobj(ArtifactData.edit_fig, 'Tag', 'StartFrameEdit');
+    end_frame_handle = findobj(ArtifactData.edit_fig, 'Tag', 'EndFrameEdit');
+    
+    start_frame = str2double(get(start_frame_handle, 'String'));
+    end_frame = str2double(get(end_frame_handle, 'String'));
+    
+    % Validate inputs
+    if isnan(start_frame) || isnan(end_frame) || start_frame < 1 || ...
+       end_frame > ArtifactData.total_frames || start_frame > end_frame
+        errordlg(sprintf('Invalid frame range. Please enter values between 1 and %d with start <= end', ...
+                        ArtifactData.total_frames));
+        start_frame = [];
+        end_frame = [];
+        return;
+    end
+end
+
+function interpolated_data = interpolate_data(data, start_frame, end_frame)
+    % Interpolate data between start_frame and end_frame
+    % Uses linear interpolation between the points just before and after the range
+    
+    % Find valid points before and after the range for interpolation
+    before_idx = start_frame - 1;
+    after_idx = end_frame + 1;
+    
+    % Find the nearest valid points if the immediate neighbors are NaN
+    while before_idx > 1 && (isnan(data(before_idx)) || isinf(data(before_idx)))
+        before_idx = before_idx - 1;
+    end
+    
+    while after_idx <= length(data) && (isnan(data(after_idx)) || isinf(data(after_idx)))
+        after_idx = after_idx + 1;
+    end
+    
+    % Perform interpolation if we have valid boundary points
+    if before_idx >= 1 && after_idx <= length(data) && ...
+       ~isnan(data(before_idx)) && ~isnan(data(after_idx)) && ...
+       ~isinf(data(before_idx)) && ~isinf(data(after_idx))
+        
+        % Linear interpolation
+        x1 = before_idx;
+        x2 = after_idx;
+        y1 = data(before_idx);
+        y2 = data(after_idx);
+        
+        % Create interpolated values for the range
+        interpolated_values = y1 + (y2 - y1) * ((start_frame:end_frame) - x1) / (x2 - x1);
+        
+    else
+        % If we can't find valid boundary points, use the mean of the entire trace
+        valid_data = data(~isnan(data) & ~isinf(data));
+        if ~isempty(valid_data)
+            mean_value = mean(valid_data);
+            interpolated_values = repmat(mean_value, 1, end_frame - start_frame + 1);
+        else
+            % If no valid data exists, set to zero
+            interpolated_values = zeros(1, end_frame - start_frame + 1);
+        end
+    end
+    
+    % Return only the interpolated values for the specified range
+    interpolated_data = interpolated_values;
+end
+function done_editing_callback(~, ~)
+    global ArtifactData
+    
+    fprintf('Finished editing %s\n', ArtifactData.ID{ArtifactData.selected_area});
+    close(ArtifactData.edit_fig);
+    
+    % Move back to step 2 (trace selection)
+    ArtifactData.step = 2;
+    ArtifactData.selected_area = [];
+    show_trace_selection();
+end
+
+function close_trace_editing(~, ~)
+    global ArtifactData
+    
+    fprintf('Editing window closed for %s\n', ArtifactData.ID{ArtifactData.selected_area});
+    delete(ArtifactData.edit_fig);
+    
+    % Move back to step 2 (trace selection)
+    ArtifactData.step = 2;
+    ArtifactData.selected_area = [];
+    show_trace_selection();
+end
+
+function show_review()
+    global ArtifactData
+    
+    fprintf('\nStep 4: Review changes...\n');
+    
+    % Create figure for review
+    fig = figure('Name', sprintf('%s - Review Changes', ArtifactData.mouse_name));
+    set(fig, 'Position', get(0, 'Screensize'));
+    set(fig, 'CloseRequestFcn', @close_review);
+    
+    ArtifactData.review_fig = fig;
+    
+    % Add controls
+    uicontrol('Style', 'pushbutton', 'String', 'Accept Changes', ...
+        'Position', [50, 50, 120, 40], 'Callback', @accept_changes_callback, ...
+        'FontSize', 12, 'BackgroundColor', [0.8 1 0.8]);
+    
+    uicontrol('Style', 'pushbutton', 'String', 'Back to Selection', ...
+        'Position', [180, 50, 120, 40], 'Callback', @back_to_selection_callback, ...
+        'FontSize', 12, 'BackgroundColor', [1 1 0.8]);
+    
+    % Display modifications
+    if ~isempty(ArtifactData.modifications)
+        modifications_text = 'Modifications made:\n\n';
+        for i = 1:length(ArtifactData.modifications)
+            modifications_text = [modifications_text, sprintf('%d. %s\n', i, ArtifactData.modifications{i})];
+        end
+    else
+        modifications_text = 'No modifications made.';
+    end
+    
+    uicontrol('Style', 'text', 'String', modifications_text, ...
+        'Position', [50, 150, 600, 200], 'FontSize', 10, ...
+        'HorizontalAlignment', 'left', 'BackgroundColor', 'white');
+    
+    % Summary statistics
+    summary_text = sprintf('Summary for mouse: %s\n\nTotal frames: %d\nNumber of areas: %d\nChannel flipped: %s\n', ...
+        ArtifactData.mouse_name, ArtifactData.total_frames, ArtifactData.num_areas, ...
+        char(string(ArtifactData.channels_flipped)));
+    
+    uicontrol('Style', 'text', 'String', summary_text, ...
+        'Position', [50, 100, 300, 50], 'FontSize', 10, ...
+        'HorizontalAlignment', 'left', 'BackgroundColor', 'white');
+end
+
+function accept_changes_callback(~, ~)
+    global ArtifactData
+    
+    fprintf('Changes accepted for mouse %s\n', ArtifactData.mouse_name);
+    close(ArtifactData.review_fig);
+    
+    % Move to step 5 (completion)
+    ArtifactData.step = 5;
+end
+
+function back_to_selection_callback(~, ~)
+    global ArtifactData
+    
+    fprintf('Returning to trace selection...\n');
+    close(ArtifactData.review_fig);
+    
+    % Move back to step 2
+    ArtifactData.step = 2;
+    show_trace_selection();
+end
+
+function close_review(~, ~)
+    global ArtifactData
+    
+    fprintf('Review completed for mouse %s\n', ArtifactData.mouse_name);
+    delete(ArtifactData.review_fig);
+    
+    % Move to step 5 (completion)
+    ArtifactData.step = 5;
+end
+
+function mouse_stats = calculate_mouse_statistics(MOUSE_DATA, current_mouse_name, ID)
+    % Calculate statistics for the current mouse across all sessions
+    mouse_stats = struct();
+    mouse_stats.use_defaults = true;
+    
+    try
+        % Find sessions for this mouse
+        mouse_sessions = {};
+        session_names = fieldnames(MOUSE_DATA);
+        
+        for i = 1:length(session_names)
+            if contains(session_names{i}, current_mouse_name)
+                mouse_sessions{end+1} = session_names{i};
+            end
+        end
+        
+        if isempty(mouse_sessions)
+            fprintf('No sessions found for mouse %s, using default statistics\n', current_mouse_name);
+            return;
+        end
+        
+        % Collect all frame data for this mouse
+        all_frames = [];
+        for i = 1:length(mouse_sessions)
+            session_name = mouse_sessions{i};
+            if isfield(MOUSE_DATA.(session_name), 'frames')
+                frames_data = MOUSE_DATA.(session_name).frames;
+                if ~isempty(frames_data)
+                    all_frames = [all_frames, frames_data];
+                end
+            end
+        end
+        
+        if ~isempty(all_frames)
+            num_areas = min(size(all_frames, 1), length(ID));
+            mouse_stats.frames_std = zeros(num_areas, 1);
+            mouse_stats.frames_median = zeros(num_areas, 1);
+            
+            for area = 1:num_areas
+                area_data = all_frames(area, :);
+                clean_data = area_data(~isnan(area_data) & ~isinf(area_data));
+                
+                if length(clean_data) > 100
+                    mouse_stats.frames_std(area) = std(clean_data);
+                    mouse_stats.frames_median(area) = median(clean_data);
+                else
+                    mouse_stats.frames_std(area) = 1;
+                    mouse_stats.frames_median(area) = 0;
+                end
+            end
+            
+            mouse_stats.use_defaults = false;
+            fprintf('Calculated statistics for mouse %s from %d sessions\n', current_mouse_name, length(mouse_sessions));
+        end
+        
+    catch ME
+        fprintf('Error calculating statistics for mouse %s: %s\n', current_mouse_name, ME.message);
+        fprintf('Using default statistics\n');
+    end
+end
