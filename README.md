@@ -60,8 +60,6 @@ Extracts calcium-dependent signals from raw dual-wavelength fiber photometry rec
 - Dual-wavelength correction (405nm isosbestic / 470nm GCaMP)
 - Baseline normalization and temporal smoothing
 
-**[Documentation →](01_Neuronal_Preprocessing/README.md)**
-
 ---
 
 ### Module 2: Behavioral Tracking Synchronization
@@ -75,8 +73,6 @@ Aligns DeepLabCut pose estimation with calcium imaging acquisition through FFmpe
 - Sub-20ms temporal alignment accuracy
 - Outlier correction via moving window interpolation
 - Multi-trial concatenation with consistent frame mapping
-
-**[Documentation →](02_Behavioral_Synchronization/README.md)**
 
 ---
 
@@ -93,7 +89,6 @@ Interactive correction of motion artifacts, photobleaching, and channel inconsis
 - Batch operations across all 37 brain regions
 - Demo mode with synthetic data generation
 
-**[Documentation →](03_Quality_Control/README.md)**
 
 ---
 
@@ -110,7 +105,6 @@ Multi-algorithm machine learning pipeline to decode behavioral states (novel vs.
 - Comprehensive visualization with feature importance analysis
 - Demo mode: synthetic data generator for testing workflow
 
-**[Documentation →](04_Neural_Classification/README.md)**
 
 ---
 
@@ -178,7 +172,7 @@ If you use this pipeline in your research, please cite:
   author = {[Zvi Kuhr]},
   title = {Neuronal-Behavioral-Analysis: Integrated Pipeline for Neural Decoding},
   year = {2025},
-  url = {https://github.com/yourusername/Neuronal-Behavioral-Analysis}
+  url = {https://github.com/zvikuhr1-coder/Neuronal-Behavioral-Analysis}
 }
 ```
 
